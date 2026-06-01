@@ -50,6 +50,51 @@ section {
   margin-bottom: 1.5rem;
 }
 
+/* Auth */
+.auth-section h3 {
+  margin-bottom: 0.5rem;
+}
+
+.auth-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.auth-row input {
+  flex: 1;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: monospace;
+}
+
+.auth-status {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius);
+}
+
+.auth-ok {
+  color: #065f46;
+  background: #d1fae5;
+}
+
+.auth-warn {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.model-info {
+  background: #eff6ff;
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  color: #1e40af;
+  margin-bottom: 1rem;
+}
+
 /* Drop zone */
 .drop-zone {
   border: 2px dashed var(--border);

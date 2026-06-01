@@ -25,7 +25,9 @@ def test_mcp_info():
     assert r.status_code == 200
     data = r.json()
     assert data["name"] == "meeting-protocol"
-    assert any(t["name"] == "transcribe_meeting" for t in data["tools"])
+    # Только transcribe_meeting, get_protocol, list_protocols
+    names = {t["name"] for t in data["tools"]}
+    assert names == {"transcribe_meeting", "get_protocol", "list_protocols"}
 
 
 def test_mcp_initialize():
@@ -55,10 +57,24 @@ def test_mcp_tools_list():
     )
     assert r.status_code == 200
     tools = r.json()["result"]["tools"]
-    names = {t["name"] for t in tools}
-    assert {"transcribe_meeting", "get_protocol", "list_protocols"} <= names
+    # Убираем выбор модели из схемы
+    for t in tools:
+        if t["name"] == "transcribe_meeting":
+            props = t["inputSchema"]["properties"]
+            assert "model" not in props  # модель больше не выбирается
 
 
 def test_transcribe_no_file():
+    """Без файла — ошибка 422 (validation)."""
     r = client.post("/api/v1/transcribe", data={})
-    assert r.status_code == 422  # validation error
+    assert r.status_code == 422
+
+
+def test_transcribe_with_auth_disabled():
+    """Без API_KEY в .env — запрос проходит (dev mode), но без MiniMax ключа упадёт на API."""
+    r = client.post(
+        "/api/v1/transcribe",
+        files={"file": ("a.mp3", b"fake", "audio/mpeg")},
+    )
+    # Без MINIMAX_API_KEY получим 500 (RuntimeError в фоне), с ключом — 400 (битый файл)
+    assert r.status_code in (200, 400, 415, 500)

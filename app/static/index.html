@@ -14,6 +14,16 @@
   </header>
 
   <main>
+    <section class="auth-section" id="authSection">
+      <h3>🔑 Авторизация</h3>
+      <p class="hint">Введите API-ключ (получен от администратора). Ключ хранится в этом браузере.</p>
+      <div class="auth-row">
+        <input type="password" id="apiKeyInput" placeholder="API-ключ" autocomplete="off">
+        <button class="btn-primary" id="saveKeyBtn">Сохранить</button>
+      </div>
+      <p class="auth-status" id="authStatus"></p>
+    </section>
+
     <section class="upload-section">
       <div class="drop-zone" id="dropZone">
         <div class="drop-zone-content">
@@ -46,14 +56,7 @@
         <span>Заметки к встрече (опционально)</span>
         <textarea id="promptInput" rows="3" placeholder="Например: 'Встреча команды разработки 01.06.2026'"></textarea>
       </label>
-      <label>
-        <span>Модель</span>
-        <select id="modelSelect">
-          <option value="minimax">MiniMax M2.7 (по умолчанию)</option>
-          <option value="m3">MiniMax M3 (только для видео, глубокий анализ)</option>
-          <option value="ollama">Ollama qwen2.5:14b (локально)</option>
-        </select>
-      </label>
+      <p class="model-info">🤖 Модель: <b>MiniMax M3</b> (для аудио и видео)</p>
       <button class="btn-primary" id="submitBtn" disabled>🚀 Обработать</button>
     </section>
 
@@ -85,9 +88,9 @@
       <details>
         <summary>🔧 API и MCP</summary>
         <div class="api-info">
-          <p><strong>REST API:</strong></p>
+          <p><strong>REST API (требуется Authorization: Bearer &lt;key&gt;):</strong></p>
           <ul>
-            <li><code>POST /api/v1/transcribe</code> — multipart: file, prompt, model</li>
+            <li><code>POST /api/v1/transcribe</code> — multipart: file, prompt</li>
             <li><code>GET /api/v1/jobs/{id}</code> — статус</li>
             <li><code>GET /api/v1/download/{filename}</code> — DOCX</li>
             <li><code>GET /api/v1/jobs</code> — список завершённых</li>
@@ -96,13 +99,8 @@
           <ul>
             <li><code>GET /mcp/info</code> — discovery</li>
             <li><code>GET /mcp/sse</code> — SSE transport</li>
-            <li><code>POST /mcp/rpc</code> — JSON-RPC 2.0 (initialize, tools/list, tools/call)</li>
+            <li><code>POST /mcp/rpc</code> — JSON-RPC 2.0</li>
             <li>Инструменты: <code>transcribe_meeting</code>, <code>get_protocol</code>, <code>list_protocols</code></li>
-          </ul>
-          <p><strong>CLI:</strong></p>
-          <ul>
-            <li><code>python -m app.cli transcribe meeting.mp4</code></li>
-            <li><code>python -m app.cli list</code></li>
           </ul>
         </div>
       </details>

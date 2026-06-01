@@ -1,5 +1,50 @@
 // Meeting Protocol — клиентский JS
 
+// === Auth ===
+const API_KEY_STORAGE = 'meeting_protocol_api_key';
+let apiKey = localStorage.getItem(API_KEY_STORAGE) || '';
+
+const authSection = document.getElementById('authSection');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const saveKeyBtn = document.getElementById('saveKeyBtn');
+const authStatus = document.getElementById('authStatus');
+
+function updateAuthStatus() {
+  if (apiKey) {
+    authStatus.textContent = '✓ Ключ сохранён. Можно загружать файлы.';
+    authStatus.className = 'auth-status auth-ok';
+    apiKeyInput.value = '••••••••';
+  } else {
+    authStatus.textContent = '⚠ Ключ не задан. Запросы будут отклонены сервером.';
+    authStatus.className = 'auth-status auth-warn';
+    apiKeyInput.value = '';
+  }
+}
+updateAuthStatus();
+
+saveKeyBtn.addEventListener('click', () => {
+  const v = apiKeyInput.value.trim();
+  if (v && v !== '••••••••') {
+    apiKey = v;
+    localStorage.setItem(API_KEY_STORAGE, apiKey);
+  } else if (apiKeyInput.value === '') {
+    apiKey = '';
+    localStorage.removeItem(API_KEY_STORAGE);
+  }
+  updateAuthStatus();
+});
+
+apiKeyInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveKeyBtn.click();
+});
+
+function authHeaders() {
+  const h = {};
+  if (apiKey) h['Authorization'] = 'Bearer ' + apiKey;
+  return h;
+}
+
+// === UI refs ===
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 const fileInfo = document.getElementById('fileInfo');
@@ -8,7 +53,6 @@ const fileSize = document.getElementById('fileSize');
 const fileType = document.getElementById('fileType');
 const resetFile = document.getElementById('resetFile');
 const promptInput = document.getElementById('promptInput');
-const modelSelect = document.getElementById('modelSelect');
 const submitBtn = document.getElementById('submitBtn');
 const progressSection = document.getElementById('progressSection');
 const progressFill = document.getElementById('progressFill');
@@ -48,7 +92,7 @@ function handleFile(file) {
   fileType.textContent = file.type || '—';
   fileInfo.style.display = 'flex';
   submitBtn.disabled = false;
-  document.getElementById('fileInput').value = '';
+  fileInput.value = '';
 }
 
 function formatSize(bytes) {
@@ -64,17 +108,11 @@ resetFile.addEventListener('click', () => {
   submitBtn.disabled = true;
 });
 
-// Submit
 submitBtn.addEventListener('click', async () => {
   if (!selectedFile) return;
-
-  // Detect if video but model != m3
-  const isVideo = selectedFile.type.startsWith('video/');
-  const model = modelSelect.value;
-  if (isVideo && model !== 'm3') {
-    if (!confirm('Видео рекомендуется обрабатывать моделью M3. Продолжить с ' + model + '?')) {
-      return;
-    }
+  if (!apiKey) {
+    showError('Сначала введите API-ключ в разделе Авторизация');
+    return;
   }
 
   submitBtn.disabled = true;
@@ -87,28 +125,39 @@ submitBtn.addEventListener('click', async () => {
   const fd = new FormData();
   fd.append('file', selectedFile);
   fd.append('prompt', promptInput.value);
-  fd.append('model', model);
 
   try {
-    const resp = await fetch('/api/v1/transcribe', { method: 'POST', body: fd });
+    const resp = await fetch('/api/v1/transcribe', {
+      method: 'POST',
+      body: fd,
+      headers: authHeaders(),
+    });
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || 'Upload failed');
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error('Неверный API-ключ. Проверьте раздел "Авторизация".');
+      }
+      throw new Error(data.detail || 'Upload failed');
+    }
 
     currentJobId = data.job_id;
-    statusText.textContent = 'Обработка (ASR + LLM + DOCX)...';
+    statusText.textContent = 'Обработка (M3 + DOCX)...';
     progressFill.style.width = '30%';
-
     pollJob();
   } catch (e) {
-    showError('Ошибка загрузки: ' + e.message);
+    showError('Ошибка: ' + e.message);
   }
 });
 
 async function pollJob() {
   if (!currentJobId) return;
   try {
-    const resp = await fetch('/api/v1/jobs/' + currentJobId);
+    const resp = await fetch('/api/v1/jobs/' + currentJobId, { headers: authHeaders() });
     if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        showError('Неверный API-ключ');
+        return;
+      }
       setTimeout(pollJob, 2000);
       return;
     }
@@ -124,18 +173,12 @@ async function pollJob() {
     } else if (job.status === 'failed') {
       showError(job.error || 'Неизвестная ошибка');
     } else {
-      // показываем прогресс по статусу
-      const progressMap = {
-        pending: 35,
-        transcribing: 50,
-        analyzing: 70,
-        rendering: 90,
-      };
+      const progressMap = { pending: 35, transcribing: 50, analyzing: 70, rendering: 90 };
       progressFill.style.width = (progressMap[job.status] || 40) + '%';
       const statusMap = {
         pending: 'В очереди...',
         transcribing: 'Транскрибация аудио...',
-        analyzing: 'Анализ LLM...',
+        analyzing: 'Анализ M3...',
         rendering: 'Генерация DOCX...',
       };
       statusText.textContent = statusMap[job.status] || job.status;

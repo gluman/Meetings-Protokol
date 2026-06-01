@@ -5,11 +5,10 @@ import sys
 from pathlib import Path
 
 from .api import _process_job
-from .config import settings
 from . import storage
 
 
-async def transcribe_cmd(file_path: str, prompt: str, model: str):
+async def transcribe_cmd(file_path: str, prompt: str):
     p = Path(file_path)
     if not p.exists():
         print(f"File not found: {file_path}", file=sys.stderr)
@@ -22,18 +21,19 @@ async def transcribe_cmd(file_path: str, prompt: str, model: str):
     storage.init_db()
     storage.create_job(
         job_id=job_id,
-        model_used=model,
+        model_used="m3",
         is_video=(kind == "video"),
         file_name=p.name,
         file_path=str(p),
     )
     print(f"Job: {job_id}")
-    print("Processing...")
-    await _process_job(job_id, p, prompt, model, kind)
+    print("Processing (M3)...")
+    await _process_job(job_id, p, prompt, kind)
     job = storage.get_job(job_id)
     if job and job.status == "completed":
         print(f"✓ Completed. DOCX: /api/v1/download/{job_id}.docx")
-        print(f"  Protocol: {job.protocol.model_dump() if job.protocol else None}")
+        if job.protocol:
+            print(f"  Protocol: {job.protocol.model_dump()}")
     else:
         print(f"✗ Failed: {job.error if job else 'unknown'}")
 
@@ -45,18 +45,12 @@ def main():
     t = sub.add_parser("transcribe", help="Обработать файл")
     t.add_argument("file", help="Путь к аудио/видео файлу")
     t.add_argument("--prompt", default="", help="Заметки к встрече")
-    t.add_argument(
-        "--model",
-        default="minimax",
-        choices=["m3", "minimax", "ollama"],
-        help="LLM (default: minimax)",
-    )
 
     sub.add_parser("list", help="Список завершённых протоколов")
 
     args = p.parse_args()
     if args.cmd == "transcribe":
-        asyncio.run(transcribe_cmd(args.file, args.prompt, args.model))
+        asyncio.run(transcribe_cmd(args.file, args.prompt))
     elif args.cmd == "list":
         storage.init_db()
         for j in storage.list_jobs():

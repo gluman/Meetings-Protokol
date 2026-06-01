@@ -4,18 +4,19 @@ import logging
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from . import storage
 from .asr import transcribe_audio
+from .auth import require_bearer
 from .config import settings
 from .docx import render_protocol_docx
 from .llm import generate_protocol
 from .models import JobStatus
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_bearer)])
 
 
 def _detect_kind(mime: str) -> str:
@@ -64,9 +65,8 @@ async def transcribe(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     prompt: str = Form(""),
-    model: str = Form("minimax"),
 ):
-    """Принимает аудио или видео, возвращает job_id, обрабатывает в фоне."""
+    """Принимает аудио или видео, возвращает job_id, обрабатывает в фоне. Всегда M3."""
     job_id = f"mp-{uuid.uuid4().hex[:12]}"
     mime = (file.content_type or "").lower()
     kind = _detect_kind(mime)
@@ -85,12 +85,12 @@ async def transcribe(
 
     storage.create_job(
         job_id=job_id,
-        model_used=model,
+        model_used="m3",
         is_video=(kind == "video"),
         file_name=file.filename or "media",
         file_path=str(file_path),
     )
-    background_tasks.add_task(_process_job, job_id, file_path, prompt, model, kind)
+    background_tasks.add_task(_process_job, job_id, file_path, prompt, kind)
     return {
         "job_id": job_id,
         "status": "pending",
@@ -102,28 +102,25 @@ async def _process_job(
     job_id: str,
     file_path: Path,
     prompt: str,
-    model: str,
     kind: str,
 ) -> None:
-    """Фоновый пайплайн: ASR → LLM → DOCX → SQLite."""
+    """Фоновый пайплайн: ASR → LLM (M3) → DOCX → SQLite."""
     try:
         storage.update_status(job_id, "transcribing")
         is_video = kind == "video"
 
         video_b64 = None
+        transcript = ""
         if is_video:
             # для видео отдаём base64 в M3 vision
             video_b64 = base64.b64encode(file_path.read_bytes()).decode("ascii")
-
-        transcript = ""
-        if not is_video:
+        else:
             transcript = await transcribe_audio(str(file_path), language="ru")
         storage.update_status(job_id, "analyzing")
 
         protocol, used_model = await generate_protocol(
             transcript=transcript,
             prompt=prompt,
-            model=model if model in ("m3", "minimax", "ollama") else "minimax",
             is_video=is_video,
             video_base64=video_b64,
         )
@@ -131,7 +128,7 @@ async def _process_job(
         storage.update_status(job_id, "rendering")
 
         await render_protocol_docx(protocol, job_id)
-        # Обновляем model_used на фактически использованную
+        # обновим model_used на фактически использованную
         with storage._conn() as c:
             c.execute(
                 "UPDATE jobs SET model_used=? WHERE job_id=?",
@@ -143,7 +140,6 @@ async def _process_job(
         logger.exception(f"Job {job_id} failed")
         storage.update_status(job_id, "failed", error=str(e)[:1000])
     finally:
-        # чистим исходник
         try:
             file_path.unlink(missing_ok=True)
         except Exception:
