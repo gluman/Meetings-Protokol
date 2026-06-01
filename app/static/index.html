@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Meeting Protocol — Сервис транскрибации</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📝 Meeting Protocol</h1>
+    <p class="subtitle">Загрузите аудио или видео встречи — получите DOCX-протокол</p>
+  </header>
+
+  <main>
+    <section class="upload-section">
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-zone-content">
+          <div class="icon">📁</div>
+          <p><strong>Перетащите файл сюда</strong> или нажмите для выбора</p>
+          <p class="hint">Поддержка: MP3, WAV, M4A, MP4, MOV, WEBM, MKV. До 500 МБ.</p>
+          <input type="file" id="fileInput" accept="audio/*,video/*" hidden>
+        </div>
+      </div>
+
+      <div class="file-info" id="fileInfo" style="display:none">
+        <div class="file-info-row">
+          <span class="label">Файл:</span>
+          <span id="fileName">—</span>
+        </div>
+        <div class="file-info-row">
+          <span class="label">Размер:</span>
+          <span id="fileSize">—</span>
+        </div>
+        <div class="file-info-row">
+          <span class="label">Тип:</span>
+          <span id="fileType">—</span>
+        </div>
+        <button class="btn-link" id="resetFile">✕ Сбросить</button>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <label>
+        <span>Заметки к встрече (опционально)</span>
+        <textarea id="promptInput" rows="3" placeholder="Например: 'Встреча команды разработки 01.06.2026'"></textarea>
+      </label>
+      <label>
+        <span>Модель</span>
+        <select id="modelSelect">
+          <option value="minimax">MiniMax M2.7 (по умолчанию)</option>
+          <option value="m3">MiniMax M3 (только для видео, глубокий анализ)</option>
+          <option value="ollama">Ollama qwen2.5:14b (локально)</option>
+        </select>
+      </label>
+      <button class="btn-primary" id="submitBtn" disabled>🚀 Обработать</button>
+    </section>
+
+    <section class="progress-section" id="progressSection" style="display:none">
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <p class="status" id="statusText">Загрузка...</p>
+    </section>
+
+    <section class="result-section" id="resultSection" style="display:none">
+      <h2>✅ Протокол готов</h2>
+      <div class="result-actions">
+        <a id="downloadLink" class="btn-primary" download>📥 Скачать DOCX</a>
+        <button class="btn-secondary" id="viewJsonBtn">👁 Показать JSON</button>
+        <button class="btn-secondary" id="newSessionBtn">🆕 Новая встреча</button>
+      </div>
+      <details id="jsonDetails">
+        <summary>JSON-структура протокола</summary>
+        <pre id="jsonOutput"></pre>
+      </details>
+    </section>
+
+    <section class="error-section" id="errorSection" style="display:none">
+      <h2>❌ Ошибка</h2>
+      <p id="errorText"></p>
+      <button class="btn-secondary" id="retryBtn">↻ Попробовать снова</button>
+    </section>
+
+    <section class="info-section">
+      <details>
+        <summary>🔧 API и MCP</summary>
+        <div class="api-info">
+          <p><strong>REST API:</strong></p>
+          <ul>
+            <li><code>POST /api/v1/transcribe</code> — multipart: file, prompt, model</li>
+            <li><code>GET /api/v1/jobs/{id}</code> — статус</li>
+            <li><code>GET /api/v1/download/{filename}</code> — DOCX</li>
+            <li><code>GET /api/v1/jobs</code> — список завершённых</li>
+          </ul>
+          <p><strong>MCP (Model Context Protocol):</strong></p>
+          <ul>
+            <li><code>GET /mcp/info</code> — discovery</li>
+            <li><code>GET /mcp/sse</code> — SSE transport</li>
+            <li><code>POST /mcp/rpc</code> — JSON-RPC 2.0 (initialize, tools/list, tools/call)</li>
+            <li>Инструменты: <code>transcribe_meeting</code>, <code>get_protocol</code>, <code>list_protocols</code></li>
+          </ul>
+          <p><strong>CLI:</strong></p>
+          <ul>
+            <li><code>python -m app.cli transcribe meeting.mp4</code></li>
+            <li><code>python -m app.cli list</code></li>
+          </ul>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>Meeting Protocol Service · Web · REST API · MCP · CLI</p>
+  </footer>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
