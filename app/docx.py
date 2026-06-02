@@ -56,7 +56,7 @@ def render_html(protocol: Protocol, job_id: str) -> str:
         html_parts.append(f"<div>{_nl2br(p.agenda)}</div>")
 
     if p.questions:
-        html_parts.append("<h2>Вопросы, обсуждённые на встрече</h2>")
+        html_parts.append("<h2>Обсудили на встрече</h2>")
         for q in p.questions:
             html_parts.append(
                 f'<div class="item"><span class="item-title">{_esc(q.q_number)}. '
@@ -73,12 +73,15 @@ def render_html(protocol: Protocol, job_id: str) -> str:
                 f'<div class="item"><span class="item-title">{_esc(d.d_number)}. '
                 f"{_esc(d.d_text)}</span>"
             )
+            owner_due = []
             if d.d_owner:
-                html_parts.append(
-                    f'<div class="sub">Ответственный: {_esc(d.d_owner)}</div>'
-                )
+                owner_due.append(_esc(d.d_owner))
             if d.d_due:
-                html_parts.append(f'<div class="sub due">Срок: {_esc(d.d_due)}</div>')
+                owner_due.append(f"срок: {_esc(d.d_due)}")
+            if owner_due:
+                html_parts.append(
+                    f'<div class="sub">Ответственный: {", ".join(owner_due)}</div>'
+                )
             html_parts.append("</div>")
 
     if p.open_questions:

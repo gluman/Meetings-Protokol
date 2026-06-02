@@ -5,6 +5,7 @@
 """
 import json
 import logging
+import re
 
 import httpx
 
@@ -30,20 +31,107 @@ def _provider_status() -> tuple[str, str]:
 
 
 def _extract_json(raw) -> dict:
-    """Извлекает первый валидный JSON-объект из ответа LLM."""
+    """Извлекает первый валидный JSON-объект из ответа LLM.
+
+    Стратегия:
+    1. Если ответ уже dict — вернуть как есть.
+    2. Убрать markdown-обёртки ```json ... ``` если есть.
+    3. Найти первый top-level {...} через balanced-brace scanning
+       (с учётом строк и escape) и вернуть его.
+    4. Если первый кандидат не парсится, попробовать обрезать по
+       правильным границам (для случая, когда LLM вставила {...} внутри строки).
+    """
     if isinstance(raw, dict):
         return raw
-    s = str(raw)
-    i = s.find("{")
-    j = s.rfind("}")
-    if i == -1 or j == -1:
-        raise ValueError(f"No JSON object found in LLM response: {s[:200]}")
-    clean = s[i:j+1]
+    s = str(raw).strip()
+
+    # 1) Strip markdown code fences
+    s = re.sub(r"^```(?:json)?\s*", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s*```$", "", s)
+
+    # 2) Find FIRST balanced {...} candidate (with string/escape awareness)
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    end = -1
+    for i, ch in enumerate(s):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    end = i
+                    break
+
+    if start == -1 or end == -1:
+        raise ValueError(f"No JSON object found in LLM response: {s[:300]}")
+
+    candidate = s[start : end + 1]
+    # 3) Попробовать распарсить первый кандидат
     try:
-        return json.loads(clean)
-    except json.JSONDecodeError:
-        fixed = clean.replace("\\n", " ").replace('\\"', '"')
-        return json.loads(fixed)
+        return json.loads(candidate)
+    except json.JSONDecodeError as e1:
+        # 4) Если первый кандидат битый (LLM засунула { в строку),
+        # пробуем найти другие top-level блоки тем же сканером
+        candidates = []
+        depth = 0
+        start = -1
+        in_str = False
+        esc = False
+        for i, ch in enumerate(s):
+            if esc:
+                esc = False
+                continue
+            if ch == "\\":
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0 and start != -1:
+                        candidates.append(s[start : i + 1])
+                        start = -1
+
+        last_err = e1
+        for cand in candidates:
+            try:
+                return json.loads(cand)
+            except json.JSONDecodeError as e:
+                last_err = e
+                continue
+        # 5) Last resort: голый json.loads всей строки
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            pass
+        raise ValueError(
+            f"No valid JSON in LLM response. last_err={last_err}. "
+            f"first_candidate={candidates[0][:200] if candidates else candidate[:200]}"
+        )
 
 
 async def generate_protocol(
@@ -116,5 +204,6 @@ async def generate_protocol(
 
     result = resp.json()
     raw = result["choices"][0]["message"]["content"]
+    logger.info(f"LLM[raw len={len(str(raw))}]: {str(raw)[:1000]!r}")
     parsed = _extract_json(raw)
     return Protocol.model_validate(parsed), settings.autoai_model
