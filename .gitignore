@@ -6,6 +6,7 @@ venv/
 .env
 .env.*
 !.env.example
+app/prompts/
 storage/audio/*
 storage/protocols/*
 storage/jobs.db

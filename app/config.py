@@ -7,11 +7,17 @@ BASE_DIR = Path(__file__).parent.parent
 
 
 class Settings(BaseSettings):
-    # MiniMax
+    # MiniMax (прямой API — fallback, если AUTOAI_USE=false)
     minimax_api_key: str = ""
     minimax_base_url: str = "https://api.minimax.io/v1"
     minimax_model_default: str = "MiniMax-M2.7"
     minimax_whisper_model: str = "MiniMax-Whisper"
+
+    # AutoAI Router (OpenAI-совместимый, идёт через srv-proxy 192.168.0.125:8080)
+    autoai_base_url: str = "http://192.168.0.125:8080/v1"
+    autoai_api_key: str = ""
+    autoai_use: bool = True  # если True и autoai_api_key задан — ходим через роутер
+    autoai_model: str = "MiniMax-M3"  # единственная модель
 
     # Ollama
 # (не используется — оставлен только MiniMax-M3)

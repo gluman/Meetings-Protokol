@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .api import router as api_router
 from .config import settings
 from .mcp_server import mcp_router
+from .prompts_api import router as prompts_router
 from . import storage
 
 logging.basicConfig(
@@ -43,6 +44,7 @@ app.add_middleware(
 
 app.include_router(api_router)
 app.include_router(mcp_router)
+app.include_router(prompts_router)
 
 # Статические файлы (web UI)
 STATIC_DIR = Path(__file__).parent / "static"

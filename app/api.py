@@ -36,6 +36,23 @@ async def health():
     return {"status": "ok"}
 
 
+@router.get("/info")
+async def info():
+    """Показывает активный провайдер (autoai/minimax-direct). Без секретов в ответе."""
+    from .asr import _provider_status as asr_status
+    from .llm import _provider_status as llm_status
+
+    llm_provider, llm_url = llm_status()
+    return {
+        "asr_provider": asr_status(),
+        "llm_provider": llm_provider,
+        "llm_url": llm_url,
+        "autoai_use": settings.autoai_use,
+        "autoai_model": settings.autoai_model,
+        "minimax_whisper_model": settings.minimax_whisper_model,
+    }
+
+
 @router.get("/jobs")
 async def list_jobs(limit: int = 50):
     return [j.model_dump(mode="json") for j in storage.list_jobs(limit)]

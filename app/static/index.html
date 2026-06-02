@@ -56,12 +56,36 @@
         <span>Заметки к встрече (опционально)</span>
         <textarea id="promptInput" rows="3" placeholder="Например: 'Встреча команды разработки 01.06.2026'"></textarea>
       </label>
-      <p class="model-info">🤖 Модель: <b>MiniMax M3</b> (для аудио и видео)</p>
+      <p class="model-info">🤖 Модель: <b>MiniMax M3</b> (через AutoAI Router, без выбора)</p>
       <div class="form-actions">
         <button class="btn-primary" id="submitBtn" disabled>🚀 Обработать</button>
         <a class="btn-secondary" id="templateLink" href="/api/v1/template" download="protocol_template.docx">📄 Скачать шаблон</a>
+        <button class="btn-secondary" id="editPromptBtn" type="button">📝 Редактировать промпт</button>
       </div>
     </section>
+
+    <!-- Модалка редактирования системного промпта -->
+    <div class="modal" id="promptModal" hidden>
+      <div class="modal-content">
+        <header class="modal-header">
+          <h3 id="promptModalTitle">📝 Системный промпт</h3>
+          <button class="modal-close" id="promptModalClose" type="button">✕</button>
+        </header>
+        <div class="modal-body">
+          <div class="prompt-tabs">
+            <button class="prompt-tab active" data-name="audio" type="button">Audio (транскрипт)</button>
+            <button class="prompt-tab" data-name="video" type="button">Video (vision)</button>
+          </div>
+          <div class="prompt-meta" id="promptMeta">— символов, — строк</div>
+          <textarea id="promptEditor" spellcheck="false"></textarea>
+          <div class="prompt-actions">
+            <button class="btn-secondary" id="promptResetBtn" type="button">↻ Сбросить на дефолт</button>
+            <button class="btn-primary" id="promptSaveBtn" type="button">💾 Сохранить</button>
+          </div>
+          <p class="prompt-status" id="promptStatus"></p>
+        </div>
+      </div>
+    </div>
 
     <section class="progress-section" id="progressSection" style="display:none">
       <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>

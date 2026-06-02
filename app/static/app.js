@@ -229,3 +229,112 @@ retryBtn.addEventListener('click', () => {
   errorSection.style.display = 'none';
   if (selectedFile) submitBtn.click();
 });
+
+// === Prompt editor modal ===
+const promptModal = document.getElementById('promptModal');
+const promptEditor = document.getElementById('promptEditor');
+const promptStatus = document.getElementById('promptStatus');
+const promptMeta = document.getElementById('promptMeta');
+const promptTabs = document.querySelectorAll('.prompt-tab');
+let currentPromptName = 'audio';
+
+function setPromptStatus(text, kind) {
+  promptStatus.textContent = text;
+  promptStatus.className = 'prompt-status' + (kind ? ' ' + kind : '');
+  if (kind === 'ok') {
+    setTimeout(() => { promptStatus.textContent = ''; promptStatus.className = 'prompt-status'; }, 3000);
+  }
+}
+
+function updatePromptMeta() {
+  const text = promptEditor.value || '';
+  const lines = text ? text.split('\n').length : 0;
+  promptMeta.textContent = `${text.length} символов, ${lines} строк`;
+}
+
+async function loadPrompt(name) {
+  if (!apiKey) {
+    setPromptStatus('Сначала сохраните API-ключ', 'err');
+    return;
+  }
+  setPromptStatus('Загружаю...');
+  try {
+    const r = await fetch('/api/v1/prompts/' + name, {
+      headers: { 'Authorization': 'Bearer ' + apiKey }
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    promptEditor.value = data.text;
+    updatePromptMeta();
+    setPromptStatus('Загружено', 'ok');
+  } catch (e) {
+    setPromptStatus('Ошибка: ' + e.message, 'err');
+  }
+}
+
+promptTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    promptTabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentPromptName = tab.dataset.name;
+    loadPrompt(currentPromptName);
+  });
+});
+
+promptEditor.addEventListener('input', updatePromptMeta);
+
+document.getElementById('editPromptBtn').addEventListener('click', () => {
+  promptModal.hidden = false;
+  loadPrompt(currentPromptName);
+});
+
+document.getElementById('promptModalClose').addEventListener('click', () => {
+  promptModal.hidden = true;
+});
+
+promptModal.addEventListener('click', (e) => {
+  if (e.target === promptModal) promptModal.hidden = true;
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !promptModal.hidden) promptModal.hidden = true;
+});
+
+document.getElementById('promptSaveBtn').addEventListener('click', async () => {
+  if (!apiKey) { setPromptStatus('Сначала сохраните API-ключ', 'err'); return; }
+  const text = promptEditor.value.trim();
+  if (!text) { setPromptStatus('Промпт не может быть пустым', 'err'); return; }
+  setPromptStatus('Сохраняю...');
+  try {
+    const r = await fetch('/api/v1/prompts/' + currentPromptName, {
+      method: 'PUT',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ text })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+    const data = await r.json();
+    updatePromptMeta();
+    setPromptStatus(`✓ Сохранено (${data.length} символов). Вступит в силу со следующей задачи.`, 'ok');
+  } catch (e) {
+    setPromptStatus('Ошибка: ' + e.message, 'err');
+  }
+});
+
+document.getElementById('promptResetBtn').addEventListener('click', async () => {
+  if (!apiKey) { setPromptStatus('Сначала сохраните API-ключ', 'err'); return; }
+  if (!confirm('Сбросить "' + currentPromptName + '"-промпт на дефолтный?')) return;
+  setPromptStatus('Сбрасываю...');
+  try {
+    const r = await fetch('/api/v1/prompts/' + currentPromptName + '/reset', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + apiKey }
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    await loadPrompt(currentPromptName);
+  } catch (e) {
+    setPromptStatus('Ошибка: ' + e.message, 'err');
+  }
+});

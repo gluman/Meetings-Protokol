@@ -125,3 +125,69 @@ def test_transcribe_with_auth_disabled(auth_disabled_env):
         files={"file": ("a.mp3", b"fake", "audio/mpeg")},
     )
     assert r.status_code in (200, 400, 415, 500)
+
+
+def test_info_endpoint(auth_headers):
+    """GET /api/v1/info — показывает провайдера, без секретов."""
+    r = client.get("/api/v1/info", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert "asr_provider" in data
+    assert "llm_provider" in data
+    assert "autoai_use" in data
+    assert "autoai_model" in data
+    # Убедимся, что ключи НЕ утекли в ответ
+    body_text = r.text.lower()
+    for needle in ["sk-cp", "sk-aut", "bearer", "api_key="]:
+        assert needle not in body_text, f"Leaked '{needle}' in info response!"
+
+
+def test_prompts_list(auth_headers):
+    """GET /api/v1/prompts — список промптов."""
+    r = client.get("/api/v1/prompts", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    names = [p["name"] for p in data["prompts"]]
+    assert names == ["audio", "video"]
+
+
+def test_prompts_get_audio(auth_headers):
+    """GET /api/v1/prompts/audio — текст audio-промпта."""
+    r = client.get("/api/v1/prompts/audio", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["name"] == "audio"
+    assert "json" in data["text"].lower()
+    assert data["length"] > 100
+
+
+def test_prompts_get_unknown_404(auth_headers):
+    r = client.get("/api/v1/prompts/unknown", headers=auth_headers)
+    assert r.status_code == 404
+
+
+def test_prompts_update_and_reset(auth_headers):
+    """PUT → проверить изменение → POST /reset → вернуть дефолт."""
+    # Запомнить оригинал
+    r = client.get("/api/v1/prompts/video", headers=auth_headers)
+    original = r.json()["text"]
+    try:
+        # Обновить
+        new_text = "TEST PROMPT " + str(len(original))
+        r = client.put(
+            "/api/v1/prompts/video",
+            headers=auth_headers,
+            json={"text": new_text},
+        )
+        assert r.status_code == 200
+        assert r.json()["status"] == "updated"
+        # Проверить
+        r = client.get("/api/v1/prompts/video", headers=auth_headers)
+        assert r.json()["text"] == new_text
+    finally:
+        # Восстановить
+        r = client.post("/api/v1/prompts/video/reset", headers=auth_headers)
+        assert r.status_code == 200
+        # Убедиться что вернулся дефолт
+        r = client.get("/api/v1/prompts/video", headers=auth_headers)
+        assert r.json()["text"] == original

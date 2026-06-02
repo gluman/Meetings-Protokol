@@ -1,4 +1,4 @@
-"""LLM — генерация структурированного JSON-протокола через MiniMax M3.
+"""LLM — генерация структурированного JSON-протокола через AutoAI Router (или прямой MiniMax).
 
 Только одна модель — MiniMax-M3. Поддерживает и аудио (через vision с транскриптом),
 и видео (напрямую).
@@ -10,67 +10,23 @@ import httpx
 
 from .config import settings
 from .models import Protocol
+from .prompts import get_audio_prompt, get_video_prompt
 
 logger = logging.getLogger(__name__)
 
 
-SYSTEM_PROMPT = """Ты — ассистент секретаря. Заполняешь протокол встречи по шаблону.
+def _provider_status() -> tuple[str, str]:
+    """Возвращает (provider_name, base_url) — какой провайдер сейчас активен.
 
-# Входные данные:
-- Транскрипция аудиозаписи встречи (может быть длинной, до 100 000 слов).
-- Заметки пользователя (контекст, agenda, состав участников).
-
-# Задача:
-Верни ТОЛЬКО валидный JSON-объект (без markdown, без пояснений, без ```), строго следующей структуры:
-
-{
-  "date": "ДД.ММ.ГГГГ" или "",
-  "time_start": "ЧЧ:ММ" или "",
-  "participants": "ФИО1 (роль)\\nФИО2 (роль)\\n..." (простой текст, по ФИО),
-  "agenda": "общая тема/повестка одним-двумя предложениями",
-  "questions": [
-    {"q_number": 1, "q_title": "...", "q_summary": "краткое содержание"},
-    ...
-  ],
-  "decisions": [
-    {"d_number": 1, "d_text": "...", "d_owner": "ФИО", "d_due": "ДД.ММ.ГГГГ"},
-    ...
-  ],
-  "open_questions": [
-    {"o_number": 1, "o_text": "...", "o_owner": "ФИО", "o_due": "ДД.ММ.ГГГГ"},
-    ...
-  ]
-}
-
-# Правила:
-1. Дата: если в транскрипте звучала — формат ДД.ММ.ГГГГ. Иначе пустая строка.
-2. Время начала: формат ЧЧ:ММ. Иначе пустая строка.
-3. Участники: список ФИО (если звучали должности — в скобках). Каждый с новой строки через \\n.
-4. Повестка: общая тема одним-двумя предложениями.
-5. Вопросы: что обсуждали. q_title — название пункта, q_summary — 2-4 предложения.
-6. Решения: формулировки, по которым есть явное согласие. d_text в безличной форме, d_owner — ФИО, d_due — ДД.ММ.ГГГГ (если срок не звучал — оставь пустую строку).
-7. Открытые вопросы: что НЕ было решено. Формат как у решений.
-8. Все поля ВСЕГДА присутствуют (хотя бы пустые [] или "").
-9. НЕ ВЫДУМЫВАЙ факты. Если в транскрипте нет — пустая строка.
-10. Никакого markdown, никаких ```json, никаких пояснений. Только JSON."""
-
-
-VIDEO_SYSTEM_PROMPT = """Ты — ассистент секретаря, заполняющий протокол встречи по видеозаписи.
-
-Вход: видеозапись встречи (аудио+видео) + заметки пользователя.
-Верни ТОЛЬКО валидный JSON-объект строго по структуре:
-
-{
-  "date": "ДД.ММ.ГГГГ" или "",
-  "time_start": "ЧЧ:ММ" или "",
-  "participants": "ФИО1 (роль)\\nФИО2 (роль)\\n..." (по возможности из подписей/имён в видео),
-  "agenda": "общая тема 1-2 предложениями",
-  "questions": [...],
-  "decisions": [...],
-  "open_questions": [...]
-}
-
-Правила: НЕ ВЫДУМЫВАЙ факты, все поля присутствуют, формат дат ДД.ММ.ГГГГ, времени ЧЧ:ММ. Только JSON, без markdown."""
+    Ключ НЕ возвращается — он остаётся в settings.
+    """
+    if settings.autoai_use and settings.autoai_api_key:
+        return "autoai", settings.autoai_base_url
+    if settings.minimax_api_key:
+        return "minimax-direct", settings.minimax_base_url
+    raise RuntimeError(
+        "LLM: нет ни AUTOAI_API_KEY, ни MINIMAX_API_KEY. Задайте хотя бы один в .env"
+    )
 
 
 def _extract_json(raw) -> dict:
@@ -97,8 +53,7 @@ async def generate_protocol(
     is_video: bool = False,
     video_base64: str | None = None,
 ) -> tuple[Protocol, str]:
-    """
-    Генерация протокола через MiniMax-M3.
+    """Генерация протокола через MiniMax-M3 (через AutoAI Router или прямой MiniMax).
 
     Args:
         transcript: транскрипция аудио (для audio-режима)
@@ -109,12 +64,14 @@ async def generate_protocol(
     Returns:
         (Protocol, model_used_name)
     """
-    if not settings.minimax_api_key:
-        raise RuntimeError("MINIMAX_API_KEY не задан в .env")
+    provider, base_url = _provider_status()
+    api_key = settings.autoai_api_key if provider == "autoai" else settings.minimax_api_key
 
-    sys_prompt = VIDEO_SYSTEM_PROMPT if is_video else SYSTEM_PROMPT
+    # Берём промпт из файла (можно редактировать через /api/v1/prompts)
+    sys_prompt = get_video_prompt() if is_video else get_audio_prompt()
+
     headers = {
-        "Authorization": f"Bearer {settings.minimax_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
@@ -139,7 +96,7 @@ async def generate_protocol(
         )
 
     payload = {
-        "model": "MiniMax-M3",
+        "model": settings.autoai_model,
         "messages": [
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": user_content},
@@ -149,15 +106,15 @@ async def generate_protocol(
         "thinking": {"type": "disabled"},
     }
 
-    url = f"{settings.minimax_base_url}/chat/completions"
-    logger.info(f"LLM (MiniMax-M3): отправляю запрос, is_video={is_video}")
+    url = f"{base_url}/chat/completions"
+    logger.info(f"LLM[{provider}]: отправляю запрос, is_video={is_video}, model={settings.autoai_model}")
     async with httpx.AsyncClient(timeout=settings.llm_timeout_sec) as client:
         resp = await client.post(url, headers=headers, json=payload)
 
     if resp.status_code != 200:
-        raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
+        raise RuntimeError(f"LLM[{provider}] error {resp.status_code}: {resp.text[:500]}")
 
     result = resp.json()
     raw = result["choices"][0]["message"]["content"]
     parsed = _extract_json(raw)
-    return Protocol.model_validate(parsed), "MiniMax-M3"
+    return Protocol.model_validate(parsed), settings.autoai_model
