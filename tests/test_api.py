@@ -1,15 +1,63 @@
 """Smoke-тесты основного API."""
+import os
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import BASE_DIR
 from app.main import app
+
+
+def _load_api_key_from_env_file() -> str:
+    """Читает API_KEY из .env (без pydantic — чтобы не ломать monkeypatch в test_transcribe_with_auth_disabled)."""
+    env_path = BASE_DIR / ".env"
+    if not env_path.exists():
+        return ""
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("API_KEY="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+@pytest.fixture
+def auth_headers():
+    """Заголовок Authorization с API_KEY из .env. Если ключ пуст — заголовок не передаётся (dev-mode)."""
+    key = os.environ.get("API_KEY") or _load_api_key_from_env_file()
+    if not key:
+        return {}
+    return {"Authorization": f"Bearer {key}"}
+
+
+@pytest.fixture
+def auth_disabled_env(monkeypatch):
+    """Временно отключает API_KEY, чтобы приложение работало в dev-mode (без auth)."""
+    import app.config as cfg
+    import app.auth as auth_mod
+    import app.mcp_server as mcp_mod
+    import app.api as api_mod
+
+    monkeypatch.delenv("API_KEY", raising=False)
+    new_settings = cfg.Settings(_env_file=None)
+    # Подменяем settings во всех модулях, которые импортировали его в виде объекта
+    cfg.settings = new_settings
+    auth_mod.settings = new_settings
+    mcp_mod.settings = new_settings
+    api_mod.settings = new_settings
+    yield
+    monkeypatch.undo()
+    cfg.settings = cfg.Settings()
+    auth_mod.settings = cfg.settings
+    mcp_mod.settings = cfg.settings
+    api_mod.settings = cfg.settings
 
 
 client = TestClient(app)
 
 
-def test_health():
-    r = client.get("/api/v1/health")
+def test_health(auth_headers):
+    r = client.get("/api/v1/health", headers=auth_headers)
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
 
@@ -20,19 +68,19 @@ def test_root_serves_html():
     assert "Meeting Protocol" in r.text
 
 
-def test_mcp_info():
-    r = client.get("/mcp/info")
+def test_mcp_info(auth_headers):
+    r = client.get("/mcp/info", headers=auth_headers)
     assert r.status_code == 200
     data = r.json()
     assert data["name"] == "meeting-protocol"
-    # Только transcribe_meeting, get_protocol, list_protocols
     names = {t["name"] for t in data["tools"]}
     assert names == {"transcribe_meeting", "get_protocol", "list_protocols"}
 
 
-def test_mcp_initialize():
+def test_mcp_initialize(auth_headers):
     r = client.post(
         "/mcp/rpc",
+        headers=auth_headers,
         json={
             "jsonrpc": "2.0",
             "id": 1,
@@ -45,9 +93,10 @@ def test_mcp_initialize():
     assert data["result"]["serverInfo"]["name"] == "meeting-protocol"
 
 
-def test_mcp_tools_list():
+def test_mcp_tools_list(auth_headers):
     r = client.post(
         "/mcp/rpc",
+        headers=auth_headers,
         json={
             "jsonrpc": "2.0",
             "id": 2,
@@ -57,24 +106,22 @@ def test_mcp_tools_list():
     )
     assert r.status_code == 200
     tools = r.json()["result"]["tools"]
-    # Убираем выбор модели из схемы
     for t in tools:
         if t["name"] == "transcribe_meeting":
             props = t["inputSchema"]["properties"]
-            assert "model" not in props  # модель больше не выбирается
+            assert "model" not in props
 
 
-def test_transcribe_no_file():
+def test_transcribe_no_file(auth_headers):
     """Без файла — ошибка 422 (validation)."""
-    r = client.post("/api/v1/transcribe", data={})
+    r = client.post("/api/v1/transcribe", headers=auth_headers, data={})
     assert r.status_code == 422
 
 
-def test_transcribe_with_auth_disabled():
-    """Без API_KEY в .env — запрос проходит (dev mode), но без MiniMax ключа упадёт на API."""
+def test_transcribe_with_auth_disabled(auth_disabled_env):
+    """Без API_KEY — запрос проходит (dev mode), но без MiniMax ключа упадёт на API."""
     r = client.post(
         "/api/v1/transcribe",
         files={"file": ("a.mp3", b"fake", "audio/mpeg")},
     )
-    # Без MINIMAX_API_KEY получим 500 (RuntimeError в фоне), с ключом — 400 (битый файл)
     assert r.status_code in (200, 400, 415, 500)
