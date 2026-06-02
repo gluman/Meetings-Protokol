@@ -232,6 +232,18 @@ section {
   background: #f1f5f9;
 }
 
+/* Form actions row (primary + secondary side-by-side) */
+.form-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.form-actions .btn-primary,
+.form-actions .btn-secondary {
+  flex: 0 0 auto;
+}
+
 /* Progress */
 .progress-bar {
   width: 100%;

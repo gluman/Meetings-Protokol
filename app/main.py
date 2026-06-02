@@ -3,7 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -52,6 +52,19 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/")
 async def root():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/v1/template")
+async def download_template():
+    """Публичная раздача шаблона протокола (DOCX) — без авторизации."""
+    template_path = STATIC_DIR / "templates" / "protocol_template.docx"
+    if not template_path.exists():
+        raise HTTPException(404, "Template not found")
+    return FileResponse(
+        template_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="protocol_template.docx",
+    )
 
 
 @app.get("/favicon.ico")

@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_bearer)])
 
 
+# Путь к шаблону протокола (DOCX) — публичный, отдаётся без авторизации
+TEMPLATE_PATH = Path(__file__).parent / "static" / "templates" / "protocol_template.docx"
+
+
 def _detect_kind(mime: str) -> str:
     if mime.startswith("video/"):
         return "video"

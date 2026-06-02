@@ -57,7 +57,10 @@
         <textarea id="promptInput" rows="3" placeholder="Например: 'Встреча команды разработки 01.06.2026'"></textarea>
       </label>
       <p class="model-info">🤖 Модель: <b>MiniMax M3</b> (для аудио и видео)</p>
-      <button class="btn-primary" id="submitBtn" disabled>🚀 Обработать</button>
+      <div class="form-actions">
+        <button class="btn-primary" id="submitBtn" disabled>🚀 Обработать</button>
+        <a class="btn-secondary" id="templateLink" href="/api/v1/template" download="protocol_template.docx">📄 Скачать шаблон</a>
+      </div>
     </section>
 
     <section class="progress-section" id="progressSection" style="display:none">
