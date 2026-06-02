@@ -106,18 +106,23 @@ def render_html(protocol: Protocol, job_id: str) -> str:
 
 
 async def html_to_docx(html: str, out_path: Path) -> Path:
-    """Конвертирует HTML в DOCX через LibreOffice."""
+    """Конвертирует HTML в DOCX через LibreOffice.
+
+    LibreOffice создаёт файл с тем же basename что и источник, но расширением .docx.
+    Поэтому передаём временный .html файл, а потом переименовываем результат.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    html_path = out_path.with_suffix(".html")
+    # LibreOffice: source=html, target=docx. Имя выходного файла = basename(source) + .docx.
+    html_path = out_path.with_name(out_path.stem + ".html")
     html_path.write_text(html, encoding="utf-8")
 
+    # Используем явный фильтр MS Word 2007 XML, иначе HTML опознаётся как
+    # Writer/Web и не имеет docx export filter (LibreOffice 24.x).
     cmd = [
         settings.soffice_path,
         "--headless",
-        "--convert-to",
-        "docx",
-        "--outdir",
-        str(out_path.parent),
+        "--convert-to", "docx:MS Word 2007 XML",
+        "--outdir", str(out_path.parent),
         str(html_path),
     ]
     logger.info(f"DOCX: запуск soffice: {' '.join(cmd)}")
@@ -127,16 +132,24 @@ async def html_to_docx(html: str, out_path: Path) -> Path:
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc.communicate()
+    # Удаляем временный html
+    html_path.unlink(missing_ok=True)
     if proc.returncode != 0:
         raise RuntimeError(
             f"soffice failed ({proc.returncode}): {stderr.decode()[:500]}"
         )
 
-    # Удаляем временный html
-    html_path.unlink(missing_ok=True)
+    # LibreOffice создал файл с тем же basename + .docx
+    soffice_output = out_path.with_name(out_path.stem + ".docx")
+    if not soffice_output.exists():
+        raise RuntimeError(
+            f"DOCX не создан: ожидался {soffice_output}, soffice stderr={stderr.decode()[:300]}"
+        )
 
-    if not out_path.exists():
-        raise RuntimeError(f"DOCX не создан: {out_path}")
+    # Если целевой путь отличается — переименовываем
+    if soffice_output != out_path:
+        soffice_output.rename(out_path)
+
     return out_path
 
 
