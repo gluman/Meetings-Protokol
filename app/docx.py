@@ -156,8 +156,14 @@ async def html_to_docx(html: str, out_path: Path) -> Path:
     return out_path
 
 
-async def render_protocol_docx(protocol: Protocol, job_id: str) -> Path:
-    """Полный пайплайн: HTML → DOCX. Возвращает путь к файлу."""
+async def render_protocol_docx(
+    protocol: Protocol, job_id: str, output_name: str | None = None
+) -> Path:
+    """Полный пайплайн: HTML → DOCX. Возвращает путь к файлу.
+
+    output_name: желаемое имя файла без .docx (по умолчанию — job_id).
+    """
     html = render_html(protocol, job_id)
-    out_path = settings.storage_dir / "protocols" / f"{job_id}.docx"
+    base = output_name or job_id
+    out_path = settings.storage_dir / "protocols" / f"{base}.docx"
     return await html_to_docx(html, out_path)

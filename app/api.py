@@ -67,19 +67,68 @@ async def list_jobs(limit: int = 50):
     return [j.model_dump(mode="json") for j in storage.list_jobs(limit)]
 
 
+def _safe_stem(filename: str) -> str:
+    """Безопасное имя файла без расширения (для имён DOCX)."""
+    from pathlib import PurePosixPath
+    stem = PurePosixPath(filename or "protocol").stem
+    # убрать опасные символы, оставить unicode (русский и т.п.)
+    stem = "".join(c for c in stem if c.isalnum() or c in " _-")
+    stem = stem.strip().strip("._-") or "protocol"
+    return stem[:80]  # ограничение длины
+
+
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str):
     job = storage.get_job(job_id)
     if not job:
         raise HTTPException(404, "job not found")
-    return job.model_dump(mode="json")
+    data = job.model_dump(mode="json")
+    # добавим в ответ docx_url и download_name для удобства фронта
+    original = data.get("file_name") or ""
+    stem = _safe_stem(original)
+    data["docx_url"] = f"/api/v1/download/{job_id}.docx"
+    data["download_name"] = f"{stem}.docx"
+    return data
 
 
 @router.get("/download/{filename}")
 async def download_file(filename: str):
-    # защита от path traversal
+    """Скачать DOCX.
+
+    Поддерживает два варианта filename:
+    1. `{job_id}.docx`     — ищет по job_id, ищет в БД оригинальное имя файла,
+                             отдаёт DOCX с Content-Disposition: {stem}.docx
+    2. `{stem}.docx`       — прямой путь к файлу в storage/protocols/ (для legacy)
+    """
     if "/" in filename or ".." in filename:
         raise HTTPException(400, "invalid filename")
+
+    # Вариант 1: {job_id}.docx
+    if filename.startswith("mp-") and filename.endswith(".docx"):
+        job_id = filename[:-5]  # strip .docx
+        job = storage.get_job(job_id)
+        if not job:
+            raise HTTPException(404, "job not found")
+        original = job.file_name or ""
+        stem = _safe_stem(original)
+        path = settings.storage_dir / "protocols" / f"{stem}.docx"
+        if not path.exists():
+            # fallback на job_id-based путь
+            path = settings.storage_dir / "protocols" / f"{job_id}.docx"
+            if not path.exists():
+                raise HTTPException(404, "docx not found")
+            return FileResponse(
+                path,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                filename=f"{job_id}.docx",
+            )
+        return FileResponse(
+            path,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename=f"{stem}.docx",
+        )
+
+    # Вариант 2: legacy прямой путь
     path = settings.storage_dir / "protocols" / filename
     if not path.exists():
         raise HTTPException(404, "file not found")
@@ -128,14 +177,16 @@ async def transcribe(
     file_path.write_bytes(content)
     logger.info(f"upload done: job={job_id} size={total // (1024*1024)} MB")
 
+    original_name = file.filename or "audio"
     storage.create_job(
         job_id=job_id,
         model_used="m3",
         is_video=(kind == "video"),
-        file_name=file.filename or "media",
+        file_name=original_name,
         file_path=str(file_path),
     )
-    background_tasks.add_task(_process_job, job_id, file_path, prompt, kind)
+    output_stem = _safe_stem(original_name)
+    background_tasks.add_task(_process_job, job_id, file_path, prompt, kind, output_stem)
     return {
         "job_id": job_id,
         "status": "pending",
@@ -148,6 +199,7 @@ async def _process_job(
     file_path: Path,
     prompt: str,
     kind: str,
+    output_stem: str,
 ) -> None:
     """Фоновый пайплайн: ASR → LLM (M3) → DOCX → SQLite."""
     try:
@@ -172,7 +224,7 @@ async def _process_job(
         storage.save_protocol(job_id, protocol)
         storage.update_status(job_id, "rendering")
 
-        await render_protocol_docx(protocol, job_id)
+        await render_protocol_docx(protocol, job_id, output_name=output_stem)
         # обновим model_used на фактически использованную
         with storage._conn() as c:
             c.execute(
@@ -180,7 +232,7 @@ async def _process_job(
                 (used_model, job_id),
             )
         storage.update_status(job_id, "completed")
-        logger.info(f"Job {job_id} done. model={used_model}")
+        logger.info(f"Job {job_id} done. model={used_model} docx={output_stem}.docx")
     except Exception as e:
         logger.exception(f"Job {job_id} failed")
         storage.update_status(job_id, "failed", error=str(e)[:1000])

@@ -196,12 +196,17 @@ async function pollJob() {
 function showResult(job) {
   resultSection.style.display = 'block';
   downloadLink.href = job.docx_url || ('/api/v1/download/' + job.job_id + '.docx');
-  downloadLink.textContent = '📥 Скачать DOCX (' + job.job_id + ')';
+  // Имя файла для скачивания — на основе оригинального имени аудио
+  const dlName = job.download_name || (job.job_id + '.docx');
+  downloadLink.setAttribute('download', dlName);
+  downloadLink.textContent = '📥 Скачать DOCX (' + dlName + ')';
   jsonOutput.textContent = JSON.stringify({
     job_id: job.job_id,
     status: job.status,
     model_used: job.model_used,
     is_video: job.is_video,
+    original_name: job.file_name,
+    download_name: dlName,
     protocol: job.protocol,
   }, null, 2);
   document.getElementById('jsonDetails').open = false;
