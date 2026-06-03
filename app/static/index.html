@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <title>Meeting Protocol — Сервис транскрибации</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -11,25 +14,20 @@
   <header>
     <h1>📝 Meeting Protocol</h1>
     <p class="subtitle">Загрузите аудио или видео встречи — получите DOCX-протокол</p>
+    <div class="user-bar">
+      <span id="userInfo" class="user-info"></span>
+      <button class="btn-link-logout" id="logoutBtn">Выйти</button>
+    </div>
   </header>
 
   <main>
-    <section class="auth-section" id="authSection">
-      <h3>🔑 Авторизация</h3>
-      <p class="hint">Введите API-ключ (получен от администратора). Ключ хранится в этом браузере.</p>
-      <div class="auth-row">
-        <input type="password" id="apiKeyInput" placeholder="API-ключ" autocomplete="off">
-        <button class="btn-primary" id="saveKeyBtn">Сохранить</button>
-      </div>
-      <p class="auth-status" id="authStatus"></p>
-    </section>
 
     <section class="upload-section">
       <div class="drop-zone" id="dropZone">
         <div class="drop-zone-content">
           <div class="icon">📁</div>
           <p><strong>Перетащите файл сюда</strong> или нажмите для выбора</p>
-          <p class="hint">Поддержка: MP3, WAV, M4A, MP4, MOV, WEBM, MKV. До 500 МБ.</p>
+          <p class="hint">Поддержка: MP3, WAV, M4A, MP4, MOV, WEBM, MKV. До 1 ГБ.</p>
           <input type="file" id="fileInput" accept="audio/*,video/*" hidden>
         </div>
       </div>

@@ -1,48 +1,34 @@
 // Meeting Protocol — клиентский JS
 
-// === Auth ===
-const API_KEY_STORAGE = 'meeting_protocol_api_key';
-let apiKey = localStorage.getItem(API_KEY_STORAGE) || '';
-
-const authSection = document.getElementById('authSection');
-const apiKeyInput = document.getElementById('apiKeyInput');
-const saveKeyBtn = document.getElementById('saveKeyBtn');
-const authStatus = document.getElementById('authStatus');
-
-function updateAuthStatus() {
-  if (apiKey) {
-    authStatus.textContent = '✓ Ключ сохранён. Можно загружать файлы.';
-    authStatus.className = 'auth-status auth-ok';
-    apiKeyInput.value = '••••••••';
-  } else {
-    authStatus.textContent = '⚠ Ключ не задан. Запросы будут отклонены сервером.';
-    authStatus.className = 'auth-status auth-warn';
-    apiKeyInput.value = '';
+// === Web-сессия (cookie-based, JWT) ===
+async function checkSession() {
+  try {
+    const r = await fetch('/web/check', { credentials: 'include' });
+    if (r.status === 401) {
+      // Не авторизован — редирект на login
+      window.location.href = '/';
+      return false;
+    }
+    const data = await r.json();
+    if (data.auth_disabled) {
+      document.getElementById('userInfo').textContent = '🔓 Auth выключен (dev-режим)';
+    } else {
+      document.getElementById('userInfo').textContent = `👤 ${data.user || ''}`;
+    }
+    return true;
+  } catch (e) {
+    console.error('checkSession failed', e);
+    return false;
   }
 }
-updateAuthStatus();
 
-saveKeyBtn.addEventListener('click', () => {
-  const v = apiKeyInput.value.trim();
-  if (v && v !== '••••••••') {
-    apiKey = v;
-    localStorage.setItem(API_KEY_STORAGE, apiKey);
-  } else if (apiKeyInput.value === '') {
-    apiKey = '';
-    localStorage.removeItem(API_KEY_STORAGE);
-  }
-  updateAuthStatus();
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/web/logout', { method: 'POST', credentials: 'include' });
+  window.location.href = '/';
 });
 
-apiKeyInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') saveKeyBtn.click();
-});
-
-function authHeaders() {
-  const h = {};
-  if (apiKey) h['Authorization'] = 'Bearer ' + apiKey;
-  return h;
-}
+// При загрузке страницы — проверяем сессию
+checkSession();
 
 // === UI refs ===
 const dropZone = document.getElementById('dropZone');
@@ -110,40 +96,62 @@ resetFile.addEventListener('click', () => {
 
 submitBtn.addEventListener('click', async () => {
   if (!selectedFile) return;
-  if (!apiKey) {
-    showError('Сначала введите API-ключ в разделе Авторизация');
-    return;
-  }
 
   submitBtn.disabled = true;
   resultSection.style.display = 'none';
   errorSection.style.display = 'none';
   progressSection.style.display = 'block';
-  progressFill.style.width = '10%';
+  progressFill.style.width = '5%';
   statusText.textContent = 'Загрузка файла...';
 
   const fd = new FormData();
   fd.append('file', selectedFile);
   fd.append('prompt', promptInput.value);
 
-  try {
-    const resp = await fetch('/api/v1/transcribe', {
-      method: 'POST',
-      body: fd,
-      headers: authHeaders(),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      if (resp.status === 401 || resp.status === 403) {
-        throw new Error('Неверный API-ключ. Проверьте раздел "Авторизация".');
-      }
-      throw new Error(data.detail || 'Upload failed');
-    }
+  // XHR с прогрессом (fetch не умеет upload-progress).
+  // XHR стабильнее fetch для больших файлов через мобильный интернет.
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/v1/transcribe');
+  xhr.withCredentials = true;
+  xhr.timeout = 0;  // нет клиентского таймаута — сервер решает
 
-    currentJobId = data.job_id;
-    statusText.textContent = 'Обработка (M3 + DOCX)...';
-    progressFill.style.width = '30%';
-    pollJob();
+  xhr.upload.addEventListener('progress', (e) => {
+    if (!e.lengthComputable) return;
+    const pct = Math.min(90, Math.round(e.loaded / e.total * 90));
+    progressFill.style.width = pct + '%';
+    const mb = (e.loaded / 1024 / 1024).toFixed(1);
+    const totalMb = (e.total / 1024 / 1024).toFixed(1);
+    statusText.textContent = `Загрузка: ${mb} / ${totalMb} МБ (${pct}%)`;
+  });
+
+  xhr.upload.addEventListener('error', () => {
+    showError('Ошибка сети при загрузке. Проверьте подключение и попробуйте снова.');
+  });
+  xhr.upload.addEventListener('abort', () => {
+    showError('Загрузка прервана.');
+  });
+
+  xhr.addEventListener('load', () => {
+    let data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (_) { /* ignore */ }
+    if (xhr.status >= 200 && xhr.status < 300 && data && data.job_id) {
+      currentJobId = data.job_id;
+      progressFill.style.width = '95%';
+      statusText.textContent = 'Принято. Обработка (M3 + DOCX)...';
+      pollJob();
+      return;
+    }
+    const detail = (data && (data.detail || data.error)) ||
+                    `HTTP ${xhr.status}: ${(xhr.responseText || '').slice(0, 200)}`;
+    showError('Сервер: ' + detail);
+  });
+
+  xhr.addEventListener('error', () => {
+    showError('Не удалось подключиться к серверу. Проверьте интернет/URL.');
+  });
+
+  try {
+    xhr.send(fd);
   } catch (e) {
     showError('Ошибка: ' + e.message);
   }
@@ -152,12 +160,8 @@ submitBtn.addEventListener('click', async () => {
 async function pollJob() {
   if (!currentJobId) return;
   try {
-    const resp = await fetch('/api/v1/jobs/' + currentJobId, { headers: authHeaders() });
+    const resp = await fetch('/api/v1/jobs/' + currentJobId, { credentials: 'include' });
     if (!resp.ok) {
-      if (resp.status === 401 || resp.status === 403) {
-        showError('Неверный API-ключ');
-        return;
-      }
       setTimeout(pollJob, 2000);
       return;
     }
@@ -253,15 +257,9 @@ function updatePromptMeta() {
 }
 
 async function loadPrompt(name) {
-  if (!apiKey) {
-    setPromptStatus('Сначала сохраните API-ключ', 'err');
-    return;
-  }
   setPromptStatus('Загружаю...');
   try {
-    const r = await fetch('/api/v1/prompts/' + name, {
-      headers: { 'Authorization': 'Bearer ' + apiKey }
-    });
+    const r = await fetch('/api/v1/prompts/' + name, { credentials: 'include' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     promptEditor.value = data.text;
@@ -301,17 +299,14 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.getElementById('promptSaveBtn').addEventListener('click', async () => {
-  if (!apiKey) { setPromptStatus('Сначала сохраните API-ключ', 'err'); return; }
   const text = promptEditor.value.trim();
   if (!text) { setPromptStatus('Промпт не может быть пустым', 'err'); return; }
   setPromptStatus('Сохраняю...');
   try {
     const r = await fetch('/api/v1/prompts/' + currentPromptName, {
       method: 'PUT',
-      headers: {
-        'Authorization': 'Bearer ' + apiKey,
-        'Content-Type': 'application/json'
-      },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text })
     });
     if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
@@ -324,13 +319,12 @@ document.getElementById('promptSaveBtn').addEventListener('click', async () => {
 });
 
 document.getElementById('promptResetBtn').addEventListener('click', async () => {
-  if (!apiKey) { setPromptStatus('Сначала сохраните API-ключ', 'err'); return; }
   if (!confirm('Сбросить "' + currentPromptName + '"-промпт на дефолтный?')) return;
   setPromptStatus('Сбрасываю...');
   try {
     const r = await fetch('/api/v1/prompts/' + currentPromptName + '/reset', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + apiKey }
+      credentials: 'include'
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     await loadPrompt(currentPromptName);

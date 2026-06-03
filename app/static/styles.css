@@ -86,6 +86,32 @@ section {
   background: #fef3c7;
 }
 
+.auth-info {
+  color: #1e40af;
+  background: #eff6ff;
+}
+
+.user-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-muted, #64748b);
+}
+.user-info { font-weight: 500; }
+.btn-link-logout {
+  background: transparent;
+  border: 1px solid var(--border, #cbd5e1);
+  color: var(--text-muted, #64748b);
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.btn-link-logout:hover { background: #f1f5f9; color: var(--error, #dc2626); }
+
 .model-info {
   background: #eff6ff;
   padding: 0.5rem 0.8rem;
@@ -432,4 +458,191 @@ footer {
   padding: 2rem 0;
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+/* ============================================
+   Адаптив: мобильные / планшеты
+   ============================================ */
+@media (max-width: 640px) {
+  .container {
+    padding: 1rem 0.75rem;
+  }
+  header h1 {
+    font-size: 1.5rem;
+  }
+  .subtitle {
+    font-size: 0.9rem;
+  }
+  section {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 6px;
+  }
+  .drop-zone {
+    padding: 1.5rem 0.75rem;
+  }
+  .drop-zone .icon {
+    font-size: 2.25rem;
+  }
+  .drop-zone p {
+    font-size: 0.9rem;
+  }
+  .drop-zone .hint {
+    font-size: 0.8rem;
+  }
+  .form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .form-actions .btn-primary,
+  .form-actions .btn-secondary {
+    width: 100%;
+    text-align: center;
+  }
+  .result-actions {
+    flex-direction: column;
+  }
+  .result-actions .btn-primary,
+  .result-actions .btn-secondary {
+    width: 100%;
+    text-align: center;
+  }
+  .file-info {
+    font-size: 0.9rem;
+  }
+  .file-info-row {
+    flex-wrap: wrap;
+  }
+  .file-info-row .label {
+    min-width: 60px;
+  }
+  .btn-link {
+    top: 0.25rem;
+    right: 0.25rem;
+  }
+  /* Модалка: на мобиле full-screen */
+  .modal {
+    padding: 0;
+  }
+  .modal-content {
+    max-width: 100%;
+    max-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+  }
+  .modal-header {
+    padding: 12px 16px;
+  }
+  .modal-body {
+    padding: 12px 16px;
+  }
+  #promptEditor {
+    min-height: 50vh;
+    font-size: 14px;
+  }
+  .prompt-tabs {
+    overflow-x: auto;
+    flex-shrink: 0;
+  }
+  .prompt-tab {
+    padding: 8px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .prompt-actions {
+    flex-direction: column-reverse;
+  }
+  .prompt-actions .btn-primary,
+  .prompt-actions .btn-secondary {
+    width: 100%;
+  }
+  .user-bar {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .user-info {
+    font-size: 0.85rem;
+  }
+  details pre {
+    font-size: 0.75rem;
+    padding: 0.75rem;
+  }
+  /* Прогресс: текст уменьшаем */
+  .status {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 380px) {
+  header h1 {
+    font-size: 1.3rem;
+  }
+  .drop-zone {
+    padding: 1.25rem 0.5rem;
+  }
+  .drop-zone .icon {
+    font-size: 2rem;
+  }
+  section {
+    padding: 0.75rem;
+  }
+}
+
+/* Тёмная тема (system preference) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a;
+    --card-bg: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+  }
+  .drop-zone {
+    background: #0b1220;
+  }
+  .drop-zone:hover,
+  .drop-zone.dragover {
+    background: #1e3a8a22;
+  }
+  .file-info {
+    background: #0b1220;
+  }
+  .form-section textarea,
+  .form-section select {
+    background: #0b1220;
+    color: var(--text);
+  }
+  .model-info {
+    background: #1e3a8a33;
+    color: #93c5fd;
+  }
+  .btn-secondary {
+    background: var(--card-bg);
+    color: var(--text);
+  }
+  details pre {
+    background: #020617;
+  }
+  .api-info code {
+    background: #0b1220;
+  }
+  #promptEditor {
+    background: #0b1220;
+    color: var(--text);
+  }
+}
+
+/* prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }
