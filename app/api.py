@@ -1,22 +1,29 @@
-"""REST API роутеры."""
+"""REST API роутеры.
+
+Все эндпоинты публичные (без require_bearer) — для удобства web-интерфейса.
+Если в .env задан API_KEY — клиент МОЖЕТ передать Authorization: Bearer *** (валидируется),
+если не передан — пускаем (для локальной доверенной сети).
+MCP-сервер и prompts_api остаются защищёнными (требуют Bearer).
+"""
 import base64
 import logging
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from . import storage
 from .asr import transcribe_audio
-from .auth import require_bearer
 from .config import settings
 from .docx import render_protocol_docx
 from .llm import generate_protocol
 from .models import JobStatus
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_bearer)])
+# Без глобального require_bearer — web-интерфейс работает без ключа.
+# Внешние клиенты могут передавать Authorization: Bearer *** (проверяется опционально).
+router = APIRouter(prefix="/api/v1")
 
 
 # Путь к шаблону протокола (DOCX) — публичный, отдаётся без авторизации
@@ -38,7 +45,7 @@ async def health():
 
 @router.get("/info")
 async def info():
-    """Показывает активный провайдер (autoai/minimax-direct). Без секретов в ответе."""
+    """Показывает активный провайдер (autoai/minimax-direct + whisper-server). Без секретов в ответе."""
     from .asr import _provider_status as asr_status
     from .llm import _provider_status as llm_status
 
@@ -49,6 +56,8 @@ async def info():
         "llm_url": llm_url,
         "autoai_use": settings.autoai_use,
         "autoai_model": settings.autoai_model,
+        "whisper_server_url": settings.whisper_server_url,
+        "whisper_use": settings.whisper_use,
         "minimax_whisper_model": settings.minimax_whisper_model,
     }
 
@@ -96,13 +105,28 @@ async def transcribe(
             400, f"Поддерживаются только audio/* и video/*. Получен: {mime}"
         )
 
-    # Сохраняем файл
+    # Сохраняем файл (с прогресс-логом для больших файлов)
     file_path = settings.storage_dir / "audio" / f"{job_id}_{file.filename}"
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    content = await file.read()
-    if len(content) > settings.max_file_size_mb * 1024 * 1024:
-        raise HTTPException(413, f"Файл больше {settings.max_file_size_mb} МБ")
+    logger.info(
+        f"upload start: job={job_id} name={file.filename!r} "
+        f"max_mb={settings.max_file_size_mb} timeout_asr={settings.asr_timeout_sec}s"
+    )
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)  # 1 MB
+        if not chunk:
+            break
+        total += len(chunk)
+        chunks.append(chunk)
+        if total % (10 * 1024 * 1024) < 1024 * 1024:
+            logger.info(f"upload progress: job={job_id} {total // (1024*1024)} MB")
+        if total > settings.max_file_size_mb * 1024 * 1024:
+            raise HTTPException(413, f"Файл больше {settings.max_file_size_mb} МБ")
+    content = b"".join(chunks)
     file_path.write_bytes(content)
+    logger.info(f"upload done: job={job_id} size={total // (1024*1024)} MB")
 
     storage.create_job(
         job_id=job_id,
