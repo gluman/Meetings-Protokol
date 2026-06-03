@@ -51,9 +51,47 @@ const jsonOutput = document.getElementById('jsonOutput');
 const errorSection = document.getElementById('errorSection');
 const errorText = document.getElementById('errorText');
 const retryBtn = document.getElementById('retryBtn');
+const templateSelector = document.getElementById('templateSelector');
+const templateSelect = document.getElementById('templateSelect');
 
 let selectedFile = null;
 let currentJobId = null;
+
+// === Загрузка списка шаблонов и заполнение dropdown ===
+async function loadTemplates() {
+  try {
+    const r = await fetch('/api/v1/templates', { credentials: 'include' });
+    if (!r.ok) return;
+    const data = await r.json();
+    const list = data.templates || [];
+    if (!list.length) {
+      templateSelector.style.display = 'none';
+      return;
+    }
+    templateSelector.style.display = 'flex';
+    // Очистим select
+    templateSelect.innerHTML = '';
+    // Дефолтный шаблон — selected
+    let defaultId = '';
+    for (const t of list) {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name + (t.is_default ? ' ★' : '');
+      if (t.is_default) {
+        opt.selected = true;
+        defaultId = t.id;
+      }
+      templateSelect.appendChild(opt);
+    }
+    // Если есть default — оставляем, иначе первый
+    if (!defaultId && list.length > 0) {
+      templateSelect.value = list[0].id;
+    }
+  } catch (e) {
+    console.error('loadTemplates failed', e);
+  }
+}
+loadTemplates();
 
 // Drop zone
 dropZone.addEventListener('click', () => fileInput.click());
@@ -107,6 +145,11 @@ submitBtn.addEventListener('click', async () => {
   const fd = new FormData();
   fd.append('file', selectedFile);
   fd.append('prompt', promptInput.value);
+  // template_id: selected option в dropdown
+  const tplSelect = document.getElementById('templateSelect');
+  if (tplSelect && tplSelect.value) {
+    fd.append('template_id', tplSelect.value);
+  }
 
   // XHR с прогрессом (fetch не умеет upload-progress).
   // XHR стабильнее fetch для больших файлов через мобильный интернет.

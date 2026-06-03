@@ -5,14 +5,17 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router as api_router
 from .config import settings
 from .mcp_server import mcp_router
 from .prompts_api import router as prompts_router
+from .templates_api import router as templates_router
+from .web_auth import COOKIE_NAME, is_session_valid, is_web_auth_enabled, router as web_auth_router
 from . import storage
+from . import storage_templates
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,6 +27,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     storage.init_db()
+    storage_templates.init_templates_table()
     logger.info(f"Service started. Storage: {settings.storage_dir}")
     yield
 
@@ -42,9 +46,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def web_auth_middleware(request, call_next):
+    """Если web-auth включён, проверяет JWT-куку для web-маршрутов (/, /static, /web/check и т.д.).
+    API эндпоинты (/api/v1/*) проходят — у них свой Bearer-ключ, или открытый режим.
+    """
+    path = request.url.path
+    # Защищаем: корень, статику, и /web/check (нужна авторизация)
+    # Открытые: /web/login, /web/logout, /api/v1/*, /mcp/*
+    needs_auth = (
+        path == "/"
+        or path.startswith("/static")
+        or path == "/favicon.ico"
+        or path == "/web/check"
+    )
+    if is_web_auth_enabled() and needs_auth:
+        token = request.cookies.get(COOKIE_NAME)
+        if not is_session_valid(token):
+            # Для web-страниц — редирект на /web/login (отдаст HTML)
+            if path.startswith("/web"):
+                return JSONResponse(
+                    {"ok": False, "error": "no session"},
+                    status_code=401,
+                )
+            # HTML-страницы и static — отдаём login.html
+            login_page = STATIC_DIR / "login.html"
+            if login_page.exists():
+                return FileResponse(login_page, status_code=200)
+            # fallback
+            return JSONResponse(
+                {"detail": "Unauthorized: see /web/login"},
+                status_code=401,
+            )
+    return await call_next(request)
+
+
 app.include_router(api_router)
 app.include_router(mcp_router)
 app.include_router(prompts_router)
+app.include_router(templates_router)
+app.include_router(web_auth_router)
 
 # Статические файлы (web UI)
 STATIC_DIR = Path(__file__).parent / "static"

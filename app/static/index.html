@@ -15,6 +15,7 @@
     <h1>📝 Meeting Protocol</h1>
     <p class="subtitle">Загрузите аудио или видео встречи — получите DOCX-протокол</p>
     <div class="user-bar">
+      <a href="/static/templates.html" class="btn-link-logout">📋 Шаблоны</a>
       <span id="userInfo" class="user-info"></span>
       <button class="btn-link-logout" id="logoutBtn">Выйти</button>
     </div>
@@ -50,6 +51,11 @@
     </section>
 
     <section class="form-section">
+      <div class="template-selector" id="templateSelector" style="display:none">
+        <label for="templateSelect">📋 Шаблон:</label>
+        <select id="templateSelect"></select>
+        <a href="/static/templates.html" target="_blank">Управлять →</a>
+      </div>
       <label>
         <span>Заметки к встрече (опционально)</span>
         <textarea id="promptInput" rows="3" placeholder="Например: 'Встреча команды разработки 01.06.2026'"></textarea>

@@ -14,6 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPExceptio
 from fastapi.responses import FileResponse
 
 from . import storage
+from . import storage_templates
 from .asr import transcribe_audio
 from .config import settings
 from .docx import render_protocol_docx
@@ -144,8 +145,13 @@ async def transcribe(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     prompt: str = Form(""),
+    template_id: str = Form(""),
 ):
-    """Принимает аудио или видео, возвращает job_id, обрабатывает в фоне. Всегда M3."""
+    """Принимает аудио или видео, возвращает job_id, обрабатывает в фоне. Всегда M3.
+
+    template_id: если задан — использовать промпт этого шаблона (приоритет над prompt).
+                  если пуст — берётся default template (если есть), иначе fallback на prompt.
+    """
     job_id = f"mp-{uuid.uuid4().hex[:12]}"
     mime = (file.content_type or "").lower()
     kind = _detect_kind(mime)
@@ -177,6 +183,27 @@ async def transcribe(
     file_path.write_bytes(content)
     logger.info(f"upload done: job={job_id} size={total // (1024*1024)} MB")
 
+    # === Выбор шаблона и промпта ===
+    # Приоритет: явный template_id > default template > встроенный DEFAULT_AUDIO
+    effective_template_id = template_id.strip()
+    template_prompt = ""
+    if not effective_template_id:
+        default_t = storage_templates.get_default_template()
+        if default_t:
+            effective_template_id = default_t["id"]
+            template_prompt = default_t.get("prompt", "")
+            logger.info(f"transcribe: using default template {effective_template_id}")
+    else:
+        t = storage_templates.get_template(effective_template_id)
+        if not t:
+            raise HTTPException(400, f"template {effective_template_id} not found")
+        template_prompt = t.get("prompt", "")
+        logger.info(f"transcribe: using template {effective_template_id}")
+
+    # Финальный промпт: если есть template — берём его, иначе user-prompt
+    # (template — основной, prompt — дополнение/заметки к встрече)
+    final_prompt = template_prompt or prompt
+
     original_name = file.filename or "audio"
     storage.create_job(
         job_id=job_id,
@@ -186,7 +213,9 @@ async def transcribe(
         file_path=str(file_path),
     )
     output_stem = _safe_stem(original_name)
-    background_tasks.add_task(_process_job, job_id, file_path, prompt, kind, output_stem)
+    background_tasks.add_task(
+        _process_job, job_id, file_path, final_prompt, kind, output_stem
+    )
     return {
         "job_id": job_id,
         "status": "pending",

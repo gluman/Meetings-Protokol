@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Шаблоны протоколов — Meeting Protocol</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📋 Шаблоны протоколов</h1>
+    <p class="subtitle">Создайте шаблон из примера протокола и используйте его по умолчанию</p>
+    <div class="user-bar">
+      <a href="/" class="btn-link-logout">← На главную</a>
+      <span id="userInfo" class="user-info"></span>
+      <button class="btn-link-logout" id="logoutBtn">Выйти</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="upload-section">
+      <h2>➕ Создать шаблон из примера</h2>
+      <p>Загрузите <b>DOCX / TXT / MD</b> файл с примером протокола. Сервис автоматически выделит разделы (Участники, Повестка, Вопросы, Решения, Открытые вопросы) и сгенерирует промпт.</p>
+      <div class="drop-zone" id="exampleDropZone">
+        <div class="drop-zone-content">
+          <div class="icon">📄</div>
+          <p><strong>Перетащите файл сюда</strong> или нажмите для выбора</p>
+          <p class="hint">DOCX / TXT / MD · до 10 МБ</p>
+          <input type="file" id="exampleFileInput" accept=".docx,.txt,.md,.markdown" hidden>
+        </div>
+      </div>
+      <div class="form-section" style="margin-top:1rem">
+        <label>
+          <span>Название шаблона (опционально)</span>
+          <input type="text" id="templateName" placeholder="Например: 'Протокол совещания директоров'" maxlength="80">
+        </label>
+        <p class="model-info" id="createStatus"></p>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h2>📚 Список шаблонов</h2>
+      <div id="templateList">
+        <p class="status">Загрузка...</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Meeting Protocol Service · Шаблоны</p>
+  </footer>
+</div>
+
+<script src="/static/templates.js"></script>
+</body>
+</html>
