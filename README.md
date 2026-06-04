@@ -682,6 +682,23 @@ meeting-protocol.gluman.tech:4443 {
 
 Сертификат: DNS-01 через `acme.sh` + reg.ru (см. skill `caddy-dns01-letsencrypt`).
 
+### Установка на Windows (полный авто-установщик)
+
+См. [README_INSTALL.md](README_INSTALL.md) — `install.bat` ставит **все** зависимости за один запуск:
+
+- Python 3.11+, FFmpeg, Ollama + MiniMax-M3, whisper.cpp + large-v3 (3.1 ГБ)
+- Caddy (HTTPS), NSSM (Windows Service)
+- Start Menu shortcuts, Windows Services, автостарт
+- 9 шагов, ~10 минут, нужны права администратора
+
+```cmd
+git clone https://github.com/gluman/Meetings-Protokol.git
+cd Meetings-Protokol
+install.bat
+notepad .env
+scripts\run.bat
+```
+
 ### Автозапуск (systemd)
 
 ```ini

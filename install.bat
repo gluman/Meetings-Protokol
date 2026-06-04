@@ -1,109 +1,304 @@
 @echo off
+
 REM ============================================================
-REM Meeting-Protocol — Windows installer
-REM Запускать в PowerShell или cmd от обычного пользователя
+
+REM Meeting-Protocol — Windows MAX installer
+
+REM
+
+REM Полный авто-установщик: Python 3.11+, FFmpeg, Ollama,
+
+REM whisper.cpp + large-v3, Caddy (HTTPS reverse proxy),
+
+REM NSSM-сервисы, Start Menu shortcuts, GPU detect.
+
+REM
+
+REM Запускать в cmd от АДМИНИСТРАТОРА. Скрипт сам попросит
+
+REM elevation через UAC, если запущен не из admin shell.
+
 REM ============================================================
+
 setlocal EnableDelayedExpansion
 
-echo.
-echo === Meeting-Protocol: Windows install script ===
+
+
+REM --- Self-elevate to Administrator -------------------------------------
+
+net session >nul 2>&1
+
+if %ERRORLEVEL% NEQ 0 (
+
+    echo.
+
+    echo === Re-launching with Administrator privileges ===
+
+    powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+
+    exit /b
+
+)
+
+
+
+set "ROOT=%~dp0"
+
+cd /d "%ROOT%"
+
+
+
 echo.
 
-REM 1. Locate Python 3.11+ on PATH or via py launcher
-echo [1/5] Checking Python...
-set PY_CMD=
-where python >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PY_VER=%%v
-    echo     Found python %PY_VER%
-    set PY_CMD=python
-) else (
-    where py >nul 2>&1
+echo ===============================================================
+
+echo  Meeting-Protocol — Windows MAX installer
+
+echo  Target dir: %CD%
+
+echo  Date: %DATE% %TIME%
+
+echo ===============================================================
+
+echo.
+
+
+
+REM --- Choose package manager --------------------------------------------
+
+set "PM=winget"
+
+where winget >nul 2>&1
+
+if %ERRORLEVEL% NEQ 0 (
+
+    where choco >nul 2>&1
+
     if %ERRORLEVEL% EQU 0 (
-        for /f "tokens=2" %%v in ('py --version 2^>^&1') do set PY_VER=%%v
-        echo     Found py launcher: %PY_VER%
-        set PY_CMD=py
+
+        set "PM=choco"
+
     ) else (
-        echo     ERROR: Python not found on PATH.
-        echo     Install Python 3.11+ from https://www.python.org/downloads/
-        echo     During install, tick "Add python.exe to PATH".
-        exit /b 1
+
+        echo No package manager found. Installing Chocolatey...
+
+        powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\install_chocolatey.ps1"
+
+        set "PM=choco"
+
     )
+
 )
 
-REM Verify version >= 3.11
-for /f "tokens=1,2 delims=." %%a in ("%PY_VER%") do (
-    set MAJOR=%%a
-    set MINOR=%%b
-)
-if %MAJOR% LSS 3 (
-    echo     ERROR: Python %PY_VER% is too old. Need 3.11+.
-    exit /b 1
-)
-if %MAJOR% EQU 3 if %MINOR% LSS 11 (
-    echo     ERROR: Python %PY_VER% is too old. Need 3.11+.
-    exit /b 1
-)
+echo Package manager: %PM%
 
-REM 2. Create venv
 echo.
-echo [2/5] Creating virtual environment .venv...
+
+
+
+REM --- GPU detect ---------------------------------------------------------
+
+echo [detect] Checking for NVIDIA GPU...
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\detect_gpu.ps1"
+
+set "HAS_NVIDIA=%ERRORLEVEL%"
+
+
+
+REM --- Install Python 3.11+ ----------------------------------------------
+
+echo.
+
+echo [1/9] Python 3.11+...
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\install_python.ps1" -Pm %PM%
+
+if errorlevel 1 goto :fail
+
+for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PY_VER=%%v
+
+echo     Python %PY_VER% ready.
+
+
+
+REM --- Create venv --------------------------------------------------------
+
+echo.
+
+echo [2/9] Virtual environment .venv ...
+
 if exist .venv (
+
     echo     .venv already exists, skipping creation.
+
 ) else (
-    %PY_CMD% -m venv .venv
-    if errorlevel 1 (
-        echo     ERROR: failed to create venv.
-        exit /b 1
-    )
-)
-set VENV_PY=.venv\Scripts\python.exe
-set VENV_PIP=.venv\Scripts\pip.exe
-%VENV_PY% --version >nul 2>&1
-if errorlevel 1 (
-    echo     ERROR: venv python not found at %VENV_PY%.
-    exit /b 1
+
+    python -m venv .venv
+
+    if errorlevel 1 goto :fail
+
 )
 
-REM 3. Upgrade pip
-echo.
-echo [3/5] Upgrading pip...
+set "VENV_PY=%ROOT%.venv\Scripts\python.exe"
+
+set "VENV_PIP=%ROOT%.venv\Scripts\pip.exe"
+
 %VENV_PY% -m pip install --upgrade pip --quiet
+
 if errorlevel 1 (
-    echo     WARNING: pip upgrade failed, continuing with current version.
+
+    echo     WARNING: pip upgrade failed, continuing.
+
 )
 
-REM 4. Install requirements
+
+
+REM --- Install Python requirements ---------------------------------------
+
 echo.
-echo [4/5] Installing Python dependencies from requirements.txt...
+
+echo [3/9] Python packages from requirements.txt ...
+
 %VENV_PY% -m pip install -r requirements.txt
+
+if errorlevel 1 goto :fail
+
+
+
+REM --- Install FFmpeg -----------------------------------------------------
+
+echo.
+
+echo [4/9] FFmpeg (for mp4/m4a input) ...
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\install_ffmpeg.ps1" -Pm %PM%
+
 if errorlevel 1 (
-    echo     ERROR: pip install failed.
-    exit /b 1
+
+    echo     WARNING: FFmpeg install failed. Audio upload of mp4/m4a will not work.
+
 )
 
-REM 5. Create .env from .env.example if missing
-echo.
-echo [5/5] Setting up .env...
-if not exist .env (
-    if exist .env.example (
-        copy /Y .env.example .env >nul
-        echo     Created .env from .env.example.
-        echo     IMPORTANT: edit .env and fill in API keys before running.
-    ) else (
-        echo     WARNING: .env.example not found, skipping.
-    )
-) else (
-    echo     .env already exists, leaving it untouched.
-)
+
+
+REM --- Install Ollama + recommended model --------------------------------
 
 echo.
-echo ============================================================
-echo Install complete.
+
+echo [5/9] Ollama + MiniMax-M3 model ...
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\install_ollama.ps1" -Pm %PM% -HasNvidia %HAS_NVIDIA%
+
+if errorlevel 1 (
+
+    echo     WARNING: Ollama install failed. LLM will use external API only.
+
+)
+
+
+
+REM --- Install whisper.cpp + large-v3 ------------------------------------
+
 echo.
+
+echo [6/9] whisper.cpp server + ggml-large-v3 model ...
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\install_whisper.ps1" -Pm %PM% -HasNvidia %HAS_NVIDIA%
+
+if errorlevel 1 (
+
+    echo     WARNING: whisper.cpp install failed. ASR will not work locally.
+
+)
+
+
+
+REM --- Install Caddy (HTTPS reverse proxy) -------------------------------
+
+echo.
+
+echo [7/9] Caddy (HTTPS reverse proxy with self-signed fallback) ...
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\install_caddy.ps1" -Pm %PM%
+
+if errorlevel 1 (
+
+    echo     WARNING: Caddy install failed. Service will be HTTP-only.
+
+)
+
+
+
+REM --- Install NSSM (service manager) -------------------------------------
+
+echo.
+
+echo [8/9] NSSM (Windows Service helper) ...
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\install_nssm.ps1" -Pm %PM%
+
+if errorlevel 1 (
+
+    echo     WARNING: NSSM install failed. Service will not auto-start on boot.
+
+)
+
+
+
+REM --- Configure .env, Start Menu shortcuts, optional service ------------
+
+echo.
+
+echo [9/9] .env configuration, Start Menu shortcuts, optional service...
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\finalize_install.ps1" -Root "%ROOT%"
+
+
+
+echo.
+
+echo ===============================================================
+
+echo  INSTALL COMPLETE
+
+echo ===============================================================
+
+echo.
+
 echo Next steps:
-echo   1. Edit .env      — fill in API keys (LLM provider, etc.)
-echo   2. Run service:   scripts\run.bat
-echo ============================================================
+
+echo   1. Edit .env        (set MINIMAX_API_KEY, AUTOAI_API_KEY, passwords)
+
+echo   2. Start in dev:   scripts\run.bat
+
+echo   3. Install as service: scripts\service_install.bat
+
+echo   4. Start Menu:    "Meeting-Protocol" folder
+
 echo.
+
+echo GPU detected: %HAS_NVIDIA% ^(0=yes, 1=no^)
+
+echo.
+
 endlocal
+
+exit /b 0
+
+
+
+:fail
+
+echo.
+
+echo ===============================================================
+
+echo  INSTALL FAILED at last step. See messages above.
+
+echo ===============================================================
+
+endlocal
+
+exit /b 1
+
