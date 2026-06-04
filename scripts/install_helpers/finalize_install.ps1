@@ -72,19 +72,24 @@ $whisperExe = Join-Path $env:ProgramFiles 'Meeting-Protocol\whisper.cpp\build\bi
 if ((Test-Path $whisperExe) -and (Get-Command nssm -ErrorAction SilentlyContinue)) {
     $svcName = 'MeetingProtocol-Whisper'
     $existing = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+    $modelDir = Join-Path $env:ProgramFiles 'Meeting-Protocol\whisper.cpp\models'
+    # Найти любую ggml-*.bin (base/medium/large-v3) — какая скачана, ту и используем
+    $modelFile = Get-ChildItem -Path $modelDir -Filter 'ggml-*.bin' -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $existing) {
-        $modelDir = Join-Path $env:ProgramFiles 'Meeting-Protocol\whisper.cpp\models'
-        & nssm install $svcName $whisperExe "-m $modelDir\ggml-large-v3.bin --port 9000 --host 0.0.0.0"
-        & nssm set $svcName AppDirectory (Split-Path $whisperExe -Parent)
-        & nssm set $svcName DisplayName 'Meeting-Protocol Whisper ASR'
-        & nssm set $svcName Start SERVICE_AUTO_START
-        & nssm set $svcName AppStdout (Join-Path $Root 'logs\whisper.log')
-        & nssm set $svcName AppStderr (Join-Path $Root 'logs\whisper.log')
-        $logsDir = Join-Path $Root 'logs'
-        if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
-        & nssm set $svcName AppStdout (Join-Path $logsDir 'whisper.log')
-        & nssm set $svcName AppStderr (Join-Path $logsDir 'whisper.log')
-        Write-Host "    Installed Windows Service: $svcName (auto-start)"
+        if ($modelFile) {
+            & nssm install $svcName $whisperExe "-m $($modelFile.FullName) --port 9000 --host 0.0.0.0"
+            & nssm set $svcName AppDirectory (Split-Path $whisperExe -Parent)
+            & nssm set $svcName DisplayName 'Meeting-Protocol Whisper ASR'
+            & nssm set $svcName Start SERVICE_AUTO_START
+            $logsDir = Join-Path $Root 'logs'
+            if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+            & nssm set $svcName AppStdout (Join-Path $logsDir 'whisper.log')
+            & nssm set $svcName AppStderr (Join-Path $logsDir 'whisper.log')
+            Write-Host "    Installed Windows Service: $svcName (auto-start, model: $($modelFile.Name))"
+        } else {
+            Write-Host "    SKIP service $svcName — no ggml-*.bin in $modelDir"
+            Write-Host "    Run: scripts\download_models.bat base  (then re-run install.bat)"
+        }
     } else {
         Write-Host "    Windows Service $svcName already exists."
     }

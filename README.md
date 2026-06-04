@@ -686,10 +686,11 @@ meeting-protocol.gluman.tech:4443 {
 
 См. [README_INSTALL.md](README_INSTALL.md) — `install.bat` ставит **все** зависимости за один запуск:
 
-- Python 3.11+, FFmpeg, Ollama + MiniMax-M3, whisper.cpp + large-v3 (3.1 ГБ)
+- Python 3.11+, FFmpeg, Ollama + MiniMax-M3, **whisper.cpp (бинарь)**
 - Caddy (HTTPS), NSSM (Windows Service)
 - Start Menu shortcuts, Windows Services, автостарт
 - 9 шагов, ~10 минут, нужны права администратора
+- **Модели ASR скачиваются отдельно** — см. [README_MODELS.md](README_MODELS.md)
 
 ```cmd
 git clone https://github.com/gluman/Meetings-Protokol.git

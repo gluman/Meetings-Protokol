@@ -27,14 +27,22 @@ if (-not (Test-Path (Join-Path $whisperDir 'build\bin\Release\whisper-server.exe
     throw 'whisper-server.exe not found after install.'
 }
 
-# Download ggml-large-v3.bin
-if (-not (Test-Path (Join-Path $modelDir 'ggml-large-v3.bin'))) {
-    if (-not (Test-Path $modelDir)) { New-Item -ItemType Directory -Path $modelDir -Force | Out-Null }
-    Write-Host "    Downloading ggml-large-v3.bin (~3.1 GB)..."
-    $url = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin'
-    Invoke-WebRequest -Uri $url -OutFile (Join-Path $modelDir 'ggml-large-v3.bin') -UseBasicParsing
+# Создаём папку models (если ещё нет) — но НЕ скачиваем модели
+# (они слишком большие для install.bat). Используйте scripts\download_models.bat
+# или скачайте вручную. См. README_MODELS.md.
+if (-not (Test-Path $modelDir)) {
+    New-Item -ItemType Directory -Path $modelDir -Force | Out-Null
+    Write-Host "    Created empty models dir: $modelDir"
+}
+
+# Проверим, есть ли хоть какая-то модель (для whisper-server чтобы стартовал)
+$existingModels = @(Get-ChildItem -Path $modelDir -Filter 'ggml-*.bin' -ErrorAction SilentlyContinue)
+if ($existingModels.Count -eq 0) {
+    Write-Host "    WARNING: no ggml-*.bin model in $modelDir"
+    Write-Host "    Run: scripts\download_models.bat base"
+    Write-Host "    Or download manually: https://huggingface.co/ggerganov/whisper.cpp"
 } else {
-    Write-Host "    ggml-large-v3.bin already downloaded."
+    Write-Host "    Found model: $($existingModels[0].Name)"
 }
 
 # Add to PATH for current user

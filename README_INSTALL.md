@@ -14,7 +14,8 @@
 | 3 | **Зависимости из `requirements.txt`** | FastAPI, uvicorn, aiosqlite, ... | PyPI |
 | 4 | **FFmpeg** | Декодирование mp4/m4a | winget: `Gyan.FFmpeg` |
 | 5 | **Ollama** + модель `MiniMax-M3` | Локальный LLM | winget: `Ollama.Ollama` |
-| 6 | **whisper.cpp** (CUDA или CPU) + `ggml-large-v3.bin` (~3.1 ГБ) | Локальный ASR | winget: `ggml-org.whisper.cpp.CUDA` |
+| 6 | **whisper.cpp** (CUDA или CPU) — **бинарь, без модели** | Локальный ASR | winget: `ggml-org.whisper.cpp.CUDA` |
+| 6a | **Модель ggml-*.bin** — `scripts\download_models.bat` | ASR | [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) |
 | 7 | **Caddy** + self-signed cert | HTTPS reverse proxy | winget: `CaddyServer.Caddy` |
 | 8 | **NSSM** | Управление Windows-сервисами | winget: `nssm.nssm` |
 | 9 | **.env** (с свежим `WEB_SESSION_SECRET`) | Конфиг приложения | из `.env.example` |
@@ -123,6 +124,24 @@ scripts\service_install.bat
 или Start Menu → Meeting-Protocol → **Install as Windows Service**.
 
 Откройте: <http://127.0.0.1:8765/>
+
+### 6. Скачайте модель whisper
+
+`install.bat` **не** качает модели (3.1 ГБ для large-v3 — слишком много для дефолтной установки). Скачайте отдельно:
+
+```cmd
+REM Базовая (142 МБ) — для большинства случаев
+scripts\download_models.bat
+
+REM Или конкретная
+scripts\download_models.bat base
+scripts\download_models.bat medium
+scripts\download_models.bat large-v3
+```
+
+Подробности и SHA256: см. **[README_MODELS.md](README_MODELS.md)**.
+
+> Если `MeetingProtocol-Whisper` Windows Service не запустился — значит модели нет. Скачайте и переустановите.
 
 ---
 

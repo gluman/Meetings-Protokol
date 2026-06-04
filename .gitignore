@@ -10,8 +10,16 @@ app/prompts/
 storage/audio/*
 storage/protocols/*
 storage/jobs.db
+storage/users.db
 logs/*.log
 *.log
 .DS_Store
 .idea/
 .vscode/
+
+# Models are downloaded separately — see README_MODELS.md
+models/*.bin
+models/*.pt
+models/*.gguf
+models/*.safetensors
+!.gitkeep

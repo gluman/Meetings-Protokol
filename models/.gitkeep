@@ -1,0 +1,5 @@
+# Models are NOT in the git repo (too large).
+# See README_MODELS.md for download instructions.
+# This directory will be populated by:
+#   scripts/download_models.bat (Windows)
+#   wget ... (Linux)

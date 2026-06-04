@@ -200,15 +200,15 @@ if errorlevel 1 (
 
 REM --- Install whisper.cpp + large-v3 ------------------------------------
 
+REM --- Install whisper.cpp (model downloaded separately — see README_MODELS.md) ----
 echo.
-
-echo [6/9] whisper.cpp server + ggml-large-v3 model ...
+echo [6/9] whisper.cpp server (model via download_models.bat) ...
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\install_helpers\install_whisper.ps1" -Pm %PM% -HasNvidia %HAS_NVIDIA%
 
 if errorlevel 1 (
-
     echo     WARNING: whisper.cpp install failed. ASR will not work locally.
+)
 
 )
 
