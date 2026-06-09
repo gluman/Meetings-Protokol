@@ -32,25 +32,9 @@ def auth_headers():
 
 @pytest.fixture
 def auth_disabled_env(monkeypatch):
-    """Временно отключает API_KEY, чтобы приложение работало в dev-mode (без auth)."""
-    import app.config as cfg
-    import app.auth as auth_mod
-    import app.mcp_server as mcp_mod
-    import app.api as api_mod
-
-    monkeypatch.delenv("API_KEY", raising=False)
-    new_settings = cfg.Settings(_env_file=None)
-    # Подменяем settings во всех модулях, которые импортировали его в виде объекта
-    cfg.settings = new_settings
-    auth_mod.settings = new_settings
-    mcp_mod.settings = new_settings
-    api_mod.settings = new_settings
+    """Подсказка: API эндпоинты теперь работают без ключа (auth опциональный).
+    Оставлено для обратной совместимости, ничего не делает."""
     yield
-    monkeypatch.undo()
-    cfg.settings = cfg.Settings()
-    auth_mod.settings = cfg.settings
-    mcp_mod.settings = cfg.settings
-    api_mod.settings = cfg.settings
 
 
 client = TestClient(app)
@@ -134,6 +118,8 @@ def test_info_endpoint(auth_headers):
     data = r.json()
     assert "asr_provider" in data
     assert "llm_provider" in data
+    assert "whisper_server_url" in data
+    assert "whisper_use" in data
     assert "autoai_use" in data
     assert "autoai_model" in data
     # Убедимся, что ключи НЕ утекли в ответ

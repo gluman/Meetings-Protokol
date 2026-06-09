@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Админ-панель — Meeting Protocol</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<link rel="stylesheet" href="/static/styles.css">
+<style>
+/* Admin-specific styles (in addition to styles.css) */
+.admin-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border, #e5e7eb); flex-wrap: wrap; }
+.admin-tab { padding: 0.6rem 1.2rem; background: none; border: none; cursor: pointer; font-size: 1rem; color: var(--text-muted, #6b7280); border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all .15s; }
+.admin-tab:hover { color: var(--text, #111); }
+.admin-tab.active { color: var(--primary, #2563eb); border-bottom-color: var(--primary, #2563eb); font-weight: 600; }
+.admin-panel { display: none; }
+.admin-panel.active { display: block; }
+.admin-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+.admin-table th, .admin-table td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--border, #e5e7eb); font-size: 0.95rem; }
+.admin-table th { background: var(--bg-alt, #f9fafb); font-weight: 600; color: var(--text-muted, #6b7280); }
+.admin-table td button { margin-right: 0.3rem; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+.admin-form { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.6rem; margin-top: 1rem; align-items: end; }
+.admin-form label { display: block; font-size: 0.85rem; color: var(--text-muted, #6b7280); margin-bottom: 0.2rem; }
+.admin-form input, .admin-form select { width: 100%; padding: 0.5rem; border: 1px solid var(--border, #e5e7eb); border-radius: 6px; font-size: 0.95rem; background: var(--bg, #fff); color: var(--text, #111); }
+.admin-form button { padding: 0.5rem 1rem; }
+@media (max-width: 768px) { .admin-form { grid-template-columns: 1fr; } }
+.admin-setting { display: grid; grid-template-columns: 1.2fr 2fr auto; gap: 0.6rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid var(--border, #e5e7eb); }
+.admin-setting .label-block { display: flex; flex-direction: column; }
+.admin-setting .label-block small { color: var(--text-muted, #6b7280); font-size: 0.8rem; }
+.admin-setting .value-input input { width: 100%; padding: 0.5rem; border: 1px solid var(--border, #e5e7eb); border-radius: 6px; font-family: monospace; font-size: 0.9rem; background: var(--bg, #fff); color: var(--text, #111); }
+.admin-setting .actions { display: flex; gap: 0.3rem; }
+.admin-setting .actions button { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+.admin-setting .override-badge { background: #10b981; color: white; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.5rem; }
+.admin-setting .env-badge { background: #6b7280; color: white; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.5rem; }
+.toast { position: fixed; bottom: 1.5rem; right: 1.5rem; padding: 0.8rem 1.2rem; border-radius: 8px; color: white; font-size: 0.95rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; max-width: 400px; }
+.toast.ok { background: #10b981; }
+.toast.err { background: #ef4444; }
+.toast.info { background: #2563eb; }
+.role-admin { color: #dc2626; font-weight: 600; }
+.role-editor { color: #2563eb; font-weight: 600; }
+.role-viewer { color: #6b7280; }
+.status-active { color: #10b981; }
+.status-inactive { color: #9ca3af; text-decoration: line-through; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>⚙️ Админ-панель</h1>
+    <p class="subtitle">Управление пользователями, ролями и настройками сервиса</p>
+    <div class="user-bar">
+      <a href="/" class="btn-link-logout">← К сервису</a>
+      <span id="userInfo" class="user-info"></span>
+      <button class="btn-link-logout" id="logoutBtn">Выйти</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="notAdminWarning" style="display:none; padding: 1.5rem; background: #fee2e2; border-radius: 8px; color: #991b1b;">
+      ⛔ Эта страница доступна только администраторам. <a href="/">На главную</a>
+    </div>
+
+    <div id="adminContent" style="display:none;">
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-panel="users">👥 Пользователи</button>
+        <button class="admin-tab" data-panel="settings">🔧 Настройки</button>
+        <button class="admin-tab" data-panel="info">ℹ️ Информация</button>
+      </div>
+
+      <!-- USERS PANEL -->
+      <div class="admin-panel active" id="panel-users">
+        <h2>Пользователи</h2>
+        <p style="color: var(--text-muted); margin-bottom: 1rem;">
+          Управление учётными записями и ролями. Роль <b>admin</b> — полный доступ.
+          <b>editor</b> — может загружать и управлять шаблонами. <b>viewer</b> — только чтение.
+        </p>
+
+        <h3>Создать пользователя</h3>
+        <form class="admin-form" id="createUserForm">
+          <div>
+            <label>Логин</label>
+            <input type="text" name="username" required minlength="2" maxlength="64" autocomplete="off">
+          </div>
+          <div>
+            <label>Пароль (мин. 6 символов)</label>
+            <input type="text" name="password" required minlength="6" maxlength="128" autocomplete="off">
+          </div>
+          <div>
+            <label>Роль</label>
+            <select name="role">
+              <option value="viewer">viewer (только чтение)</option>
+              <option value="editor">editor (загрузка + шаблоны)</option>
+              <option value="admin">admin (полный доступ)</option>
+            </select>
+          </div>
+          <div>
+            <button type="submit" class="btn-primary">Создать</button>
+          </div>
+        </form>
+
+        <h3 style="margin-top: 2rem;">Список пользователей</h3>
+        <table class="admin-table" id="usersTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Логин</th><th>Роль</th><th>Статус</th>
+              <th>Создан</th><th>Последний вход</th><th>Действия</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <!-- SETTINGS PANEL -->
+      <div class="admin-panel" id="panel-settings">
+        <h2>Настройки сервиса</h2>
+        <p style="color: var(--text-muted); margin-bottom: 1rem;">
+          Значения из <code>.env</code> можно переопределить через веб-интерфейс.
+          <span class="override-badge">override</span> = задан через админку,
+          <span class="env-badge">env</span> = значение по умолчанию из .env.
+          Секреты помечены ••• и видны только при редактировании.
+        </p>
+        <div id="settingsList"></div>
+      </div>
+
+      <!-- INFO PANEL -->
+      <div class="admin-panel" id="panel-info">
+        <h2>Информация</h2>
+        <div id="infoContent"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/static/admin.js"></script>
+</body>
+</html>
