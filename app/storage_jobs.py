@@ -22,6 +22,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
@@ -148,8 +149,13 @@ def init_extended() -> None:
             job_id TEXT (FK→jobs.job_id), glossary_id INTEGER (FK→glossaries.id),
             PRIMARY KEY (job_id, glossary_id).
 
-    Колонка:
+    Колонки:
         jobs.description: TEXT NULL — короткий комментарий пользователя.
+        jobs.template_id: INTEGER NULL — FK на templates.id (если выбран кастомный шаблон).
+        jobs.template_name: TEXT NULL — denorm название шаблона (для UI без JOIN).
+        jobs.candidates_extracted: INTEGER 0/1 — был ли запущен LLM-extract candidates.
+        jobs.regenerate_count: INTEGER — сколько раз был пересоздан документ.
+        jobs.parent_job_id: TEXT NULL — если это копия или regenerate, ссылка на оригинал.
     """
     with _lock, _conn() as c:
         # ----- glossaries -----
@@ -264,6 +270,15 @@ def init_extended() -> None:
 
     # ----- ALTER jobs.description (вне транзакции с CREATE) -----
     _add_column("jobs", "description", "TEXT")
+    _add_column("jobs", "template_id", "INTEGER")
+    _add_column("jobs", "template_name", "TEXT")
+    _add_column("jobs", "candidates_extracted", "INTEGER")
+    _add_column("jobs", "regenerate_count", "INTEGER")
+    _add_column("jobs", "parent_job_id", "TEXT")
+    # backfill defaults
+    with _conn() as c2:
+        c2.execute("UPDATE jobs SET regenerate_count = 0 WHERE regenerate_count IS NULL")
+        c2.execute("UPDATE jobs SET candidates_extracted = 0 WHERE candidates_extracted IS NULL")
 
 
 # ---------------------------------------------------------------------------
@@ -306,8 +321,12 @@ def list_jobs_with_meta(
       - queue_position: INT | None — позиция в очереди (1-based) если job в 'queued'
       - queue_status: TEXT | None — 'running' | 'queued' | 'canceled' | None
       - glossary_count: INT — кол-во привязанных глоссариев
-      - template_id: TEXT | None — пока не хранится в jobs (NULL), резерв для Шага 3
-      - prompt_id: TEXT | None — пока не хранится (NULL), резерв
+      - template_id: INT | None — ID кастомного шаблона (NULL = дефолт)
+      - template_name: TEXT | None — denorm название для UI
+      - candidates_count: INT — сколько candidates извлекли
+      - candidates_extracted: 0/1 — был ли LLM-extract
+      - regenerate_count: INT — сколько раз пересоздавался документ
+      - parent_job_id: TEXT | None — для копий/regenerate
 
     Args:
         status: фильтр по status ('completed' | 'running' | 'queued' | 'failed' | 'canceled' | 'draft' | None)
@@ -339,13 +358,23 @@ def list_jobs_with_meta(
                 j.finished_at,
                 j.error,
                 j.description,
+                j.template_id,
+                j.template_name,
+                j.candidates_extracted,
+                j.regenerate_count,
+                j.parent_job_id,
                 jq.position AS queue_position,
                 jq.status AS queue_status,
                 (
                     SELECT COUNT(*)
                     FROM job_glossaries jg
                     WHERE jg.job_id = j.job_id
-                ) AS glossary_count
+                ) AS glossary_count,
+                (
+                    SELECT COUNT(*)
+                    FROM glossary_candidates gc
+                    WHERE gc.job_id = j.job_id
+                ) AS candidates_count
             FROM jobs j
             LEFT JOIN job_queue jq ON jq.job_id = j.job_id
             {where}
@@ -384,6 +413,11 @@ def get_job_meta(job_id: str) -> dict | None:
                 j.error,
                 j.protocol_json,
                 j.description,
+                j.template_id,
+                j.template_name,
+                j.candidates_extracted,
+                j.regenerate_count,
+                j.parent_job_id,
                 jq.position AS queue_position,
                 jq.status AS queue_status
             FROM jobs j
@@ -471,6 +505,129 @@ def list_job_glossaries(job_id: str) -> list[dict]:
             JOIN job_glossaries jg ON jg.glossary_id = g.id
             WHERE jg.job_id = ?
             ORDER BY g.name
+            """,
+            (job_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Template, candidates, regenerate, parent_job helpers
+# ---------------------------------------------------------------------------
+def update_job_template(job_id: str, template_id: int | str | None, template_name: str | None) -> bool:
+    """
+    Привязывает шаблон к job. template_id=None → сбрасывает на дефолт.
+    Returns: True если job существует.
+    """
+    with _conn() as c:
+        cur = c.execute(
+            "UPDATE jobs SET template_id = ?, template_name = ? WHERE job_id = ?",
+            (template_id, template_name, job_id),
+        )
+        c.commit()
+        return cur.rowcount > 0
+
+
+def mark_candidates_extracted(job_id: str) -> bool:
+    """Помечает, что для job был выполнен LLM-extract candidates."""
+    with _conn() as c:
+        cur = c.execute(
+            "UPDATE jobs SET candidates_extracted = 1 WHERE job_id = ?",
+            (job_id,),
+        )
+        c.commit()
+        return cur.rowcount > 0
+
+
+def increment_regenerate(job_id: str) -> int:
+    """
+    Увеличивает счётчик regenerate_count на 1.
+    Returns: новое значение счётчика.
+    """
+    with _conn() as c:
+        c.execute(
+            "UPDATE jobs SET regenerate_count = COALESCE(regenerate_count, 0) + 1 WHERE job_id = ?",
+            (job_id,),
+        )
+        c.commit()
+        row = c.execute(
+            "SELECT regenerate_count FROM jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    return int(row["regenerate_count"]) if row else 0
+
+
+def set_parent_job(job_id: str, parent_job_id: str) -> bool:
+    """Помечает, что job — копия/regenerate от parent_job_id."""
+    with _conn() as c:
+        cur = c.execute(
+            "UPDATE jobs SET parent_job_id = ? WHERE job_id = ?",
+            (parent_job_id, job_id),
+        )
+        c.commit()
+        return cur.rowcount > 0
+
+
+def list_job_candidates(job_id: str, status: str | None = None) -> list[dict]:
+    """
+    Возвращает список glossary_candidates для job.
+    status: 'pending' | 'accepted' | 'rejected' | None (все).
+    """
+    where = "WHERE job_id = ?"
+    params: list = [job_id]
+    if status:
+        where += " AND status = ?"
+        params.append(status)
+    with _conn() as c:
+        rows = c.execute(
+            f"""
+            SELECT id, job_id, term, context, suggested_definition,
+                   status, created_at, reviewed_at, reviewed_by
+            FROM glossary_candidates
+            {where}
+            ORDER BY created_at DESC
+            """,
+            tuple(params),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def review_candidate(candidate_id: int, status: str, reviewed_by: int | None = None) -> bool:
+    """
+    Помечает candidate как 'accepted' или 'rejected'.
+    Returns: True если candidate существует.
+    """
+    if status not in ("accepted", "rejected"):
+        raise ValueError(f"status must be 'accepted' or 'rejected', got {status!r}")
+    with _conn() as c:
+        cur = c.execute(
+            """
+            UPDATE glossary_candidates
+            SET status = ?, reviewed_at = ?, reviewed_by = ?
+            WHERE id = ?
+            """,
+            (status, datetime.utcnow().isoformat(), reviewed_by, candidate_id),
+        )
+        c.commit()
+        return cur.rowcount > 0
+
+
+def list_job_entries_with_glossary(job_id: str) -> list[dict]:
+    """
+    Возвращает все entries из всех глоссариев, привязанных к job.
+    Для UI истории (показывает какие термины были использованы).
+    """
+    with _conn() as c:
+        rows = c.execute(
+            """
+            SELECT ge.id, ge.glossary_id, g.name AS glossary_name,
+                   ge.term, ge.definition, ge.abbreviation, ge.pronunciation,
+                   ge.comment, ge.needs_review
+            FROM glossary_entries ge
+            JOIN glossaries g ON g.id = ge.glossary_id
+            JOIN job_glossaries jg ON jg.glossary_id = g.id
+            WHERE jg.job_id = ?
+            ORDER BY g.name, ge.term
             """,
             (job_id,),
         ).fetchall()
