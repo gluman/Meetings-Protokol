@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     web_session_secret: str = "change-me-in-env"  # для подписи JWT (заменить!)
     web_session_ttl_hours: int = 24  # сколько живёт cookie
 
+    # Secure-флаг cookie. По умолчанию True (production за reverse-proxy Caddy → HTTPS).
+    # В LAN-тестовых стендах (staging за :8766, без TLS) — false, иначе браузер
+    # отбрасывает cookie и редиректит на login в бесконечном цикле.
+    is_https: bool = True
+
     # Таймауты/лимиты
     max_file_size_mb: int = 500
     asr_timeout_sec: int = 600
