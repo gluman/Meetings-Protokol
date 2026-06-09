@@ -107,7 +107,10 @@
       try {
         const r = await fetch('/web/login', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
           body: JSON.stringify({
             username: document.getElementById('username').value,
             password: document.getElementById('password').value,
@@ -115,8 +118,11 @@
           credentials: 'include',
         });
         if (r.ok) {
+          const data = await r.json().catch(() => ({}));
           setStatus('OK. Перенаправляем...', 'ok');
-          setTimeout(() => { window.location.href = '/'; }, 300);
+          // Немедленный переход (без setTimeout — кука уже в jar браузера
+          // после Set-Cookie в ответе на POST). _redirect приходит от сервера.
+          window.location.href = data._redirect || '/';
         } else {
           const data = await r.json().catch(() => ({}));
           setStatus(data.detail || 'Ошибка входа', 'err');
