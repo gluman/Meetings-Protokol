@@ -29,6 +29,12 @@ from app.web_auth import is_web_auth_enabled, login  # noqa: E402
 settings.storage_dir = Path(TMPDIR)
 (storage_users.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
+# В CI нет .env → settings.web_username="". is_web_auth_enabled() тогда False,
+# login → 503, все admin-тесты → 401. Принудительно выставляем non-empty значения
+# чтобы auth был активен (тесты используют БД, не .env, для verify_credentials).
+settings.web_username = "ci_test_admin"
+settings.web_password = "ci_test_admin_pass"
+
 # Lock для thread-safety
 _test_lock = threading.Lock()
 
