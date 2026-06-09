@@ -17,6 +17,7 @@ Endpoints:
   - POST /web/logout
   - GET  /web/check    — {ok, user, role, auth_disabled}
 """
+
 import hashlib
 import hmac
 import json
@@ -61,9 +62,7 @@ def _make_token(username: str, role: str, ttl_hours: int) -> str:
     h_b = _b64url(json.dumps(header, separators=(",", ":")).encode())
     p_b = _b64url(json.dumps(payload, separators=(",", ":")).encode())
     msg = f"{h_b}.{p_b}".encode()
-    sig = hmac.new(
-        settings.web_session_secret.encode(), msg, hashlib.sha256
-    ).digest()
+    sig = hmac.new(settings.web_session_secret.encode(), msg, hashlib.sha256).digest()
     return f"{h_b}.{p_b}.{_b64url(sig)}"
 
 
@@ -91,12 +90,14 @@ def _verify_token(token: str) -> dict | None:
 # Auth-mode detection: БД / .env / disabled
 # ---------------------------------------------------------------------------
 
+
 def is_web_auth_enabled() -> bool:
     """True если есть хоть один из источников: .env creds или users в БД."""
     if settings.web_username and settings.web_password:
         return True
     # Если в БД есть хотя бы один активный юзер — auth enabled
     from .storage_users import list_users
+
     try:
         return any(u["is_active"] for u in list_users())
     except Exception:
@@ -123,6 +124,7 @@ def _try_env_login(username: str, password: str) -> bool:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.post("/login")
 async def login(body: LoginRequest, response: Response):
     """Проверяет логин/пароль, выдаёт JWT в httpOnly cookie.
@@ -137,7 +139,10 @@ async def login(body: LoginRequest, response: Response):
     """
     if not is_web_auth_enabled():
         return JSONResponse(
-            {"ok": False, "error": "web auth disabled (set WEB_USERNAME/WEB_PASSWORD in .env)"},
+            {
+                "ok": False,
+                "error": "web auth disabled (set WEB_USERNAME/WEB_PASSWORD in .env)",
+            },
             status_code=503,
         )
 
@@ -157,6 +162,7 @@ async def login(body: LoginRequest, response: Response):
     if not get_user_by_username(body.username):
         # .env-юзер залогинился, но в БД его нет → замигрируем
         from .storage_users import migrate_from_env
+
         migrate_from_env()
 
     token = _make_token(body.username, role, settings.web_session_ttl_hours)
@@ -216,3 +222,34 @@ def is_session_valid(token: str | None) -> bool:
     if not token:
         return False
     return _verify_token(token) is not None
+
+
+async def get_current_user_id_optional(
+    mp_session: str | None = Cookie(default=None),
+) -> int | None:
+    """FastAPI dependency: возвращает user_id из cookie или None.
+
+    Используется в API endpoints где RBAC не критичен, но при наличии
+    сессии желательно знать кто вызвал. Если сессии нет — возвращает None,
+    endpoint сам решает 401 или fallback.
+
+    Returns:
+        int (user_id) или None.
+    """
+    if not is_web_auth_enabled():
+        return None
+    if not mp_session:
+        return None
+    payload = _verify_token(mp_session)
+    if not payload:
+        return None
+    username = payload.get("sub")
+    if not username:
+        return None
+    try:
+        user = get_user_by_username(username)
+    except Exception:
+        return None
+    if not user or not user["is_active"]:
+        return None
+    return int(user["id"])
