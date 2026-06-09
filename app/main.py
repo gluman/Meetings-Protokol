@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     storage.init_db()
     storage_templates.init_templates_table()
+    # Extended schema (glossaries, queue, candidates, jobs.description) — идемпотентно
+    from . import storage_jobs
+    storage_jobs.init_extended()
     # Bootstrap admin + миграция .env → БД (idempotent)
     from .storage_users import bootstrap_admin, migrate_from_env
 
