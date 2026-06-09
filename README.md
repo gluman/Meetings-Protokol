@@ -1,9 +1,33 @@
 # Meeting Protocol Service
 
+[![CI](https://github.com/gluman/Meetings-Protokol/actions/workflows/ci.yml/badge.svg)](https://github.com/gluman/Meetings-Protokol/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/gluman/Meetings-Protokol/branch/main/graph/badge.svg)](https://codecov.io/gh/gluman/Meetings-Protokol)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Сервис транскрибации аудио/видео встреч и генерации протокола в DOCX с возможностью
 создания **пользовательских шаблонов протоколов** на основе загруженных примеров.
 
 > **Версия:** 2.0 · **Модель:** MiniMax-M3 (через AutoAI Router) · **ASR:** whisper.cpp на GPU
+
+---
+
+## 🤝 Для ревьюверов
+
+| Роль | Что проверяет | Где смотреть |
+|---|---|---|
+| **Андрей (UI/функционал)** | Визуал, поведение, UX, сценарии | Web: https://meeting-protocol.gluman.tech/ · Staging: https://staging-meeting-protocol.gluman.tech/ |
+| **LLM (код)** | Архитектура, типизация, docstring, тесты | [CI workflow](.github/workflows/ci.yml) · [CONTRIBUTING.md](docs/CONTRIBUTING.md) · [docs/CI-CD-RULES.md](docs/CI-CD-RULES.md) |
+
+**Конвенции кода (для LLM-ревью):**
+- Python 3.12, type hints обязательны на всех публичных сигнатурах
+- Docstring в формате Google/NumPy на всех публичных функциях и классах
+- Имена: `snake_case` (функции/переменные), `PascalCase` (классы), `UPPER_SNAKE` (константы)
+- SQL: только параметризованные запросы через `?` placeholder
+- БД-миграции: `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ...` в try/except для уже существующих колонок
+- Тесты: pytest, файл `test_*.py`, имя `test_<что_проверяет>`
+- Без секретов в коде (`.env` через pydantic-settings, не коммитим)
+- Без `print()` в production-коде (только `logger.info/warning/error`)
 
 ---
 

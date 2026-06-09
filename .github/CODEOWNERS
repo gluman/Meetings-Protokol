@@ -1,0 +1,17 @@
+# CODEOWNERS
+# Каждый PR требует одобрения от code owner'а перед merge в защищённую ветку.
+# Синтаксис: pattern @username (одна строка = одно правило, более специфичные — выше).
+
+# Default: владелец репо (Andrey) — финальное одобрение
+* @Andrey
+
+# Безопасность и аутентификация — требует доп. ревью
+/app/web_auth.py @Andrey
+/app/auth.py @Andrey
+/app/admin_api.py @Andrey
+/app/rbac.py @Andrey
+/app/storage_users.py @Andrey
+
+# CI/CD и инфра
+/.github/ @Andrey
+/scripts/ @Andrey
