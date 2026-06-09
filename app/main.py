@@ -22,6 +22,7 @@ from .web_auth import (
 )
 from .admin_api import router as admin_router
 from .api_glossaries import router as api_glossaries_router
+from .api_jobs import router as api_jobs_router
 from . import storage
 from . import storage_templates
 
@@ -97,6 +98,7 @@ app.include_router(templates_router)
 app.include_router(web_auth_router)
 app.include_router(admin_router)
 app.include_router(api_glossaries_router)
+app.include_router(api_jobs_router)
 
 # Статические файлы (web UI)
 STATIC_DIR = Path(__file__).parent / "static"

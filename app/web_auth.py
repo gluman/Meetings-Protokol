@@ -253,3 +253,31 @@ async def get_current_user_id_optional(
     if not user or not user["is_active"]:
         return None
     return int(user["id"])
+
+
+def get_user_id_from_token_sync(token: str | None) -> int | None:
+    """Синхронный helper: извлекает user_id из session token (для тестов и middleware).
+
+    Args:
+        token: session token из cookie (mp_session) или None.
+
+    Returns:
+        int (user_id) или None если токен невалидный/нет сессии/web-auth выключен.
+    """
+    if not is_web_auth_enabled():
+        return None
+    if not token:
+        return None
+    payload = _verify_token(token)
+    if not payload:
+        return None
+    username = payload.get("sub")
+    if not username:
+        return None
+    try:
+        user = get_user_by_username(username)
+    except Exception:
+        return None
+    if not user or not user["is_active"]:
+        return None
+    return int(user["id"])

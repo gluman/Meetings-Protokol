@@ -290,3 +290,188 @@ def get_schema() -> dict[str, list[dict]]:
             rows = c.execute(f"PRAGMA table_info({tbl})").fetchall()
         schema[tbl] = [dict(r) for r in rows]
     return schema
+
+
+# ---------------------------------------------------------------------------
+# Jobs view: список заданий с joined data (description, queue position, glossaries)
+# ---------------------------------------------------------------------------
+def list_jobs_with_meta(
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Возвращает список jobs с дополнительными полями:
+      - description: TEXT (из ALTER TABLE jobs ADD COLUMN description)
+      - queue_position: INT | None — позиция в очереди (1-based) если job в 'queued'
+      - queue_status: TEXT | None — 'running' | 'queued' | 'canceled' | None
+      - glossary_count: INT — кол-во привязанных глоссариев
+      - template_id: TEXT | None — пока не хранится в jobs (NULL), резерв для Шага 3
+      - prompt_id: TEXT | None — пока не хранится (NULL), резерв
+
+    Args:
+        status: фильтр по status ('completed' | 'running' | 'queued' | 'failed' | 'canceled' | 'draft' | None)
+        limit: max кол-во записей
+        offset: пропустить первые N (для пагинации)
+
+    Returns:
+        list[dict]: каждая запись — один job, плюс мета-поля.
+                    None-поля опущены чтобы не раздувать JSON.
+    """
+    where = ""
+    params: list = []
+    if status:
+        where = "WHERE j.status = ?"
+        params.append(status)
+    params.extend([limit, offset])
+
+    with _conn() as c:
+        rows = c.execute(
+            f"""
+            SELECT
+                j.job_id,
+                j.status,
+                j.model_used,
+                j.is_video,
+                j.file_name,
+                j.file_path,
+                j.created_at,
+                j.finished_at,
+                j.error,
+                j.description,
+                jq.position AS queue_position,
+                jq.status AS queue_status,
+                (
+                    SELECT COUNT(*)
+                    FROM job_glossaries jg
+                    WHERE jg.job_id = j.job_id
+                ) AS glossary_count
+            FROM jobs j
+            LEFT JOIN job_queue jq ON jq.job_id = j.job_id
+            {where}
+            ORDER BY j.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_job_meta(job_id: str) -> dict | None:
+    """
+    Возвращает job с joined метаданными (description, queue, glossaries, candidates_count).
+
+    Args:
+        job_id: UUID
+
+    Returns:
+        dict | None: {job_id, status, ..., description, queue_position, queue_status,
+                      glossaries: [{id, name, is_shared}], candidates_count: int}
+        None если job не найден.
+    """
+    with _conn() as c:
+        row = c.execute(
+            """
+            SELECT
+                j.job_id,
+                j.status,
+                j.model_used,
+                j.is_video,
+                j.file_name,
+                j.file_path,
+                j.created_at,
+                j.finished_at,
+                j.error,
+                j.protocol_json,
+                j.description,
+                jq.position AS queue_position,
+                jq.status AS queue_status
+            FROM jobs j
+            LEFT JOIN job_queue jq ON jq.job_id = j.job_id
+            WHERE j.job_id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+    if not row:
+        return None
+    out = dict(row)
+
+    # Прикреплённые глоссарии (только id, name, is_shared — для UI)
+    # NOTE: открываем новое соединение — `with _conn() as c` уже вышел из scope.
+    with _conn() as c2:
+        glossaries = c2.execute(
+            """
+            SELECT g.id, g.name, g.is_shared
+            FROM glossaries g
+            JOIN job_glossaries jg ON jg.glossary_id = g.id
+            WHERE jg.job_id = ?
+            ORDER BY g.name
+            """,
+            (job_id,),
+        ).fetchall()
+        cand_count = c2.execute(
+            "SELECT COUNT(*) AS cnt FROM glossary_candidates WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()["cnt"]
+    out["glossaries"] = [dict(g) for g in glossaries]
+    out["candidates_count"] = cand_count
+    return out
+
+
+def update_job_description(job_id: str, description: str) -> bool:
+    """
+    Обновляет поле description (autosave для примечания). Максимум 2000 символов.
+
+    Returns:
+        bool: True если job существует и обновлён, False если job не найден.
+    """
+    if len(description) > 2000:
+        raise ValueError("description too long (max 2000 chars)")
+    with _conn() as c:
+        cur = c.execute(
+            "UPDATE jobs SET description = ? WHERE job_id = ?",
+            (description, job_id),
+        )
+        c.commit()
+        return cur.rowcount > 0
+
+
+def attach_glossary_to_job(job_id: str, glossary_id: int) -> bool:
+    """
+    Привязывает глоссарий к job (many-to-many через job_glossaries).
+    Идемпотентно: повторный attach не дублирует (PRIMARY KEY (job_id, glossary_id)).
+    """
+    with _conn() as c:
+        c.execute(
+            "INSERT OR IGNORE INTO job_glossaries (job_id, glossary_id) VALUES (?, ?)",
+            (job_id, glossary_id),
+        )
+        c.commit()
+    return True
+
+
+def detach_glossary_from_job(job_id: str, glossary_id: int) -> bool:
+    """Отвязывает глоссарий от job."""
+    with _conn() as c:
+        cur = c.execute(
+            "DELETE FROM job_glossaries WHERE job_id = ? AND glossary_id = ?",
+            (job_id, glossary_id),
+        )
+        c.commit()
+        return cur.rowcount > 0
+
+
+def list_job_glossaries(job_id: str) -> list[dict]:
+    """Возвращает список глоссариев, привязанных к job."""
+    with _conn() as c:
+        rows = c.execute(
+            """
+            SELECT g.id, g.name, g.is_shared
+            FROM glossaries g
+            JOIN job_glossaries jg ON jg.glossary_id = g.id
+            WHERE jg.job_id = ?
+            ORDER BY g.name
+            """,
+            (job_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
