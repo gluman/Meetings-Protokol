@@ -25,7 +25,7 @@ import logging
 import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 
-from fastapi import APIRouter, Cookie, HTTPException, Response
+from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -126,7 +126,7 @@ def _try_env_login(username: str, password: str) -> bool:
 
 
 @router.post("/login")
-async def login(body: LoginRequest, response: Response):
+async def login(body: LoginRequest, response: Response, request: Request):
     """Проверяет логин/пароль, выдаёт JWT в httpOnly cookie.
 
     Порядок:
@@ -136,6 +136,14 @@ async def login(body: LoginRequest, response: Response):
     Возвращает JSON {ok, user, role, ttl_hours, _redirect} — JS-клиент (login.html)
     сам делает window.location.href на _redirect. Не делаем 303-redirect потому,
     что TestClient (и часть браузеров) теряет Set-Cookie в redirect-цепочке.
+
+    Cookie Secure-флаг:
+      - Включается ТОЛЬКО если реально был HTTPS (request.url.scheme == "https")
+        И settings.is_https != False (override через .env для LAN-staging).
+      - Это позволяет:
+        * prod (HTTPS) → Secure, без утечки по HTTP
+        * LAN-staging (HTTP) → no-Secure, кука работает в браузере
+        * TestClient (http://testserver) → no-Secure, тесты проходят
     """
     if not is_web_auth_enabled():
         return JSONResponse(
@@ -166,15 +174,17 @@ async def login(body: LoginRequest, response: Response):
         migrate_from_env()
 
     token = _make_token(body.username, role, settings.web_session_ttl_hours)
-    # Secure=True: кука только по HTTPS. Сайт работает по https://, домен = gluman.tech
-    # (HTTP не используется; reverse-proxy = Caddy на srv-proxy).
-    is_https = bool(getattr(settings, "is_https", True))
+    # Secure-флаг определяется реальной схемой запроса (не settings по умолчанию).
+    # settings.is_https=False форсит no-Secure (LAN-staging override).
+    settings_force_https = bool(getattr(settings, "is_https", True))
+    request_is_https = request.url.scheme == "https"
+    cookie_secure = settings_force_https and request_is_https
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         httponly=True,
         samesite="lax",
-        secure=is_https,
+        secure=cookie_secure,
         max_age=settings.web_session_ttl_hours * 3600,
         path="/",
     )
