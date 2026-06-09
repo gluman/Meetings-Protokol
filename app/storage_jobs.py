@@ -65,6 +65,10 @@ def _conn() -> Iterator[sqlite3.Connection]:
     c.execute("PRAGMA foreign_keys = ON")
     try:
         yield c
+        c.commit()  # default isolation_level="" (deferred) requires explicit commit
+    except Exception:
+        c.rollback()
+        raise
     finally:
         c.close()
 

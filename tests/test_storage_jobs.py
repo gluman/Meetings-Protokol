@@ -1,15 +1,8 @@
-"""Tests for app/storage_jobs.py — migration + introspection."""
+"""Tests for app/storage_jobs.py — migration + introspection.
 
-import os
-import sys
+Storage инициализируется в conftest.py (autouse fixture).
+"""
 
-# Принудительно изолированный storage ДО импорта app
-os.environ["STORAGE_DIR"] = "/tmp/test_storage_jobs_pytest"
-
-sys.path.insert(0, "/home/andy/meeting-protocol")
-
-import pytest
-from app.storage import init_db
 from app.storage_jobs import (
     _add_column,
     _column_exists,
@@ -17,20 +10,6 @@ from app.storage_jobs import (
     init_extended,
     list_tables,
 )
-
-
-@pytest.fixture(autouse=True)
-def _clean_db():
-    """Гарантирует изолированный DB для каждого теста."""
-    import shutil
-
-    db_dir = "/tmp/test_storage_jobs_pytest"
-    if os.path.exists(db_dir):
-        shutil.rmtree(db_dir)
-    os.makedirs(db_dir, exist_ok=True)
-    init_db()
-    init_extended()
-    yield
 
 
 def test_tables_created():
