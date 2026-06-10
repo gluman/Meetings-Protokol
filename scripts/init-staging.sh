@@ -34,11 +34,18 @@ cd "$STAGING_DIR"
 # === 2. Switch to develop ===
 git checkout develop 2>&1 || git checkout -b develop origin/develop
 
-# === 3. Создаём отдельный venv ===
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --quiet --upgrade pip
-pip install --quiet -r requirements.txt
+# === 3. Создаём отдельный venv (ОПЦИОНАЛЬНО — у нас нет python3-venv) ===
+# На srv-technik1 системный /usr/bin/python3 уже имеет все зависимости (prod использует его).
+# Поэтому staging тоже использует system python — без venv.
+if [ ! -d .venv ] && [ -d /usr/lib/python3.12 ]; then
+    if python3 -m venv .venv 2>/dev/null; then
+        source .venv/bin/activate
+        pip install --quiet --upgrade pip
+        pip install --quiet -r requirements.txt
+    else
+        echo "WARN: python3-venv недоступен, используем /usr/bin/python3 напрямую (как prod)"
+    fi
+fi
 
 # === 4. Создаём .env (наследует от prod, но с другими параметрами) ===
 if [ ! -f .env ]; then
@@ -67,7 +74,9 @@ After=network.target
 Type=simple
 WorkingDirectory=$STAGING_DIR
 Environment=PYTHONUNBUFFERED=1
-ExecStart=$STAGING_DIR/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8766 --log-level info
+Environment=STORAGE_DIR=$STAGING_DIR/storage
+Environment=PORT=8766
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8766 --log-level info
 Restart=always
 RestartSec=5
 

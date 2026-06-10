@@ -13,7 +13,12 @@ async function checkSession() {
     if (data.auth_disabled) {
       document.getElementById('userInfo').textContent = '🔓 Auth выключен (dev-режим)';
     } else {
-      document.getElementById('userInfo').textContent = `👤 ${data.user || ''}`;
+      document.getElementById('userInfo').textContent = `👤 ${data.user || ''} · ${data.role || ''}`;
+      // Показываем ссылку на админку только админам
+      if (data.role === 'admin') {
+        const al = document.getElementById('adminLink');
+        if (al) al.style.display = '';
+      }
     }
     return true;
   } catch (e) {

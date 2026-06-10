@@ -3,17 +3,22 @@
 # Auto-deploy для STAGING (srv-technik1:8766)
 # ============================================================================
 # Запускается cron'ом каждые 5 минут.
-# Если на origin/develop есть новые коммиты — git pull + restart staging.
+# Если на origin/$STAGING_BRANCH (default: develop) есть новые коммиты — git pull + restart staging.
+#
+# Override: STAGING_BRANCH=feature/glossary-history-queue bash auto-deploy-staging.sh
+# (для review-периода чтобы не мержить в develop пока LLM/UI ревью)
 #
 # Staging — отдельная копия сервиса на порту 8766:
 #   - Working dir: /home/andy/meeting-protocol-staging
-#   - venv:        /home/andy/meeting-protocol-staging/.venv
+#   - venv:        НЕ используется (system /usr/bin/python3 как в prod)
 #   - systemd --user unit: meeting-protocol-staging.service
-#   - URL: https://staging-meeting-protocol.gluman.tech/
+#   - URL (LAN only): http://192.168.0.114:8766/
+#   - НЕ пробрасывается на роутере — тестовый стенд, доступ только из LAN.
 # ============================================================================
 
 set -euo pipefail
 
+STAGING_BRANCH="${STAGING_BRANCH:-develop}"
 PROJECT_DIR="/home/andy/meeting-protocol-staging"
 SOURCE_DIR="/home/andy/meeting-protocol"
 SERVICE_NAME="meeting-protocol-staging.service"
@@ -23,7 +28,7 @@ HEALTH_TIMEOUT=15
 DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 log() {
-    echo "[$DATE] $*" | tee -a "$LOG_FILE"
+    echo "[$DATE] [branch=$STAGING_BRANCH] $*" | tee -a "$LOG_FILE"
 }
 
 # === Проверяем, существует ли staging dir (создаётся при первом деплое) ===
@@ -35,9 +40,11 @@ fi
 cd "$PROJECT_DIR"
 
 CURRENT_BRANCH=$(git branch --show-current)
-if [ "$CURRENT_BRANCH" != "develop" ]; then
-    log "SKIP: not on develop (current: $CURRENT_BRANCH)"
-    exit 0
+if [ "$CURRENT_BRANCH" != "$STAGING_BRANCH" ]; then
+    log "INFO: switching $CURRENT_BRANCH -> $STAGING_BRANCH (review mode)"
+    git checkout "$STAGING_BRANCH" 2>&1 | head -1 | tee -a "$LOG_FILE" || {
+        log "ERROR: git checkout $STAGING_BRANCH failed"; exit 1;
+    }
 fi
 
 if ! git diff --quiet HEAD 2>/dev/null; then
@@ -45,10 +52,10 @@ if ! git diff --quiet HEAD 2>/dev/null; then
     exit 0
 fi
 
-git fetch origin develop --quiet 2>&1 || { log "ERROR: git fetch failed"; exit 1; }
+git fetch origin "$STAGING_BRANCH" --quiet 2>&1 || { log "ERROR: git fetch failed"; exit 1; }
 
 LOCAL_SHA=$(git rev-parse HEAD)
-REMOTE_SHA=$(git rev-parse origin/develop)
+REMOTE_SHA=$(git rev-parse "origin/$STAGING_BRANCH")
 
 if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
     exit 0
@@ -56,18 +63,17 @@ fi
 
 log "============================================================"
 log "STAGING DEPLOY: $LOCAL_SHA -> $REMOTE_SHA"
-log "  commit: $(git log -1 --format='%h %s' origin/develop)"
+log "  commit: $(git log -1 --format='%h %s' origin/$STAGING_BRANCH)"
 
 PRE_DEPLOY_SHA="$LOCAL_SHA"
 
-if ! git pull --ff-only origin develop 2>&1 | tee -a "$LOG_FILE"; then
+if ! git pull --ff-only "origin" "$STAGING_BRANCH" 2>&1 | tee -a "$LOG_FILE"; then
     log "ERROR: git pull failed"
     exit 1
 fi
 
-source .venv/bin/activate
-pip install -q -r requirements.txt 2>&1 | tail -3 | tee -a "$LOG_FILE" || \
-    log "WARN: pip install had issues (continuing)"
+# Без venv — staging использует /usr/bin/python3 как prod
+# (на srv-technik1 нет python3-venv, см. init-staging.sh)
 
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 if ! systemctl --user restart "$SERVICE_NAME" 2>&1 | tee -a "$LOG_FILE"; then

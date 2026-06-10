@@ -84,11 +84,24 @@ def update_status(job_id: str, status: str, error: str | None = None) -> None:
 
 
 def save_protocol(job_id: str, protocol: Protocol) -> None:
-    with _lock, _conn() as c:
+    with _conn() as c:
         c.execute(
             "UPDATE jobs SET protocol_json=? WHERE job_id=?",
             (protocol.model_dump_json(), job_id),
         )
+
+
+def delete_job(job_id: str) -> bool:
+    """
+    Удаляет job по job_id. CASCADE снимет связанные job_queue, job_glossaries,
+    glossary_candidates (если FK ON DELETE CASCADE и PRAGMA foreign_keys=ON).
+    Returns: True если job существовал и удалён.
+    """
+    with _conn() as c:
+        # Включаем FK на время этой транзакции (SQLite требует per-connection)
+        c.execute("PRAGMA foreign_keys = ON")
+        cur = c.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+    return cur.rowcount > 0
 
 
 def get_job(job_id: str) -> JobStatus | None:

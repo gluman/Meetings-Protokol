@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Глоссарии — Meeting Protocol</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="/static/styles.css">
+<style>
+  /* Glossary-specific layout */
+  .gloss-toolbar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
+  .gloss-toolbar input[type="text"] { flex: 1; min-width: 200px; }
+  .gloss-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  .gloss-card.shared { border-left: 4px solid #10b981; }
+  .gloss-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+  .gloss-card-name { font-weight: 600; font-size: 1.1rem; }
+  .gloss-card-meta { color: #6b7280; font-size: 0.85rem; }
+  .gloss-card-actions { display: flex; gap: 0.5rem; }
+  .gloss-card-actions button { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
+
+  .entries-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+  .entries-table th, .entries-table td { padding: 0.5rem 0.6rem; text-align: left; border-bottom: 1px solid #f3f4f6; font-size: 0.9rem; }
+  .entries-table th { background: #f9fafb; font-weight: 600; color: #374151; }
+  .entries-table td.term { font-weight: 500; }
+  .entries-table td.abbr { color: #6b7280; font-style: italic; }
+  .entries-table td.desc { color: #4b5563; }
+  .entries-table td.needs-review { text-align: center; }
+  .entries-table td.actions { text-align: right; white-space: nowrap; }
+  .entries-table td.actions button { margin-left: 0.25rem; padding: 0.2rem 0.5rem; font-size: 0.8rem; }
+
+  .needs-review-flag { background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
+
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: #fff; border-radius: 8px; padding: 1.5rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; }
+  .modal h3 { margin-top: 0; }
+  .modal label { display: block; margin-bottom: 0.75rem; }
+  .modal label > span { display: block; font-size: 0.85rem; color: #6b7280; margin-bottom: 0.25rem; }
+  .modal input[type="text"], .modal textarea { width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.95rem; }
+  .modal textarea { min-height: 60px; resize: vertical; }
+  .modal .checkbox { display: flex; align-items: center; gap: 0.5rem; }
+  .modal .checkbox input { margin: 0; }
+  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+
+  .empty-state { text-align: center; color: #9ca3af; padding: 2rem; font-style: italic; }
+
+  .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+  .badge-shared { background: #d1fae5; color: #065f46; }
+  .badge-private { background: #f3f4f6; color: #4b5563; }
+  .badge-owner { background: #dbeafe; color: #1e40af; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📚 Глоссарии</h1>
+    <p class="subtitle">Термины, аббревиатуры, произношения. Личные и общие для команды.</p>
+    <div class="user-bar">
+      <a href="/" class="btn-link-logout">← На главную</a>
+      <span id="userInfo" class="user-info"></span>
+      <button class="btn-link-logout" id="logoutBtn">Выйти</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="form-section">
+      <h2>➕ Создать глоссарий</h2>
+      <div class="gloss-toolbar">
+        <input type="text" id="newGlossaryName" placeholder="Название глоссария (например: 'IT-аббревиатуры')" maxlength="120">
+        <label class="checkbox">
+          <input type="checkbox" id="newGlossaryShared">
+          <span>Общий для всех</span>
+        </label>
+        <button class="btn-primary" id="createGlossaryBtn">Создать</button>
+      </div>
+      <p class="model-info" id="createStatus"></p>
+    </section>
+
+    <section class="form-section">
+      <h2>📖 Мои глоссарии</h2>
+      <div id="glossaryList">
+        <p class="status">Загрузка...</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Meeting Protocol Service · Глоссарии</p>
+  </footer>
+</div>
+
+<!-- Modal: Add/Edit entry -->
+<div id="entryModal" class="modal-backdrop" style="display:none">
+  <div class="modal">
+    <h3 id="entryModalTitle">Добавить термин</h3>
+    <form id="entryForm">
+      <input type="hidden" id="entryId" value="">
+      <input type="hidden" id="entryGlossaryId" value="">
+      <label>
+        <span>Термин *</span>
+        <input type="text" id="entryTerm" required maxlength="200" placeholder="Например: 'ASR'">
+      </label>
+      <label>
+        <span>Аббревиатура / Произношение</span>
+        <input type="text" id="entryAbbreviation" maxlength="80" placeholder="Например: 'Automatic Speech Recognition'">
+      </label>
+      <label>
+        <span>Описание / Расшифровка</span>
+        <textarea id="entryDescription" maxlength="2000" placeholder="Что означает, как используется"></textarea>
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" id="entryNeedsReview">
+        <span>Требует проверки (LLM извлёк, не уверен)</span>
+      </label>
+      <p class="model-info" id="entryFormStatus"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="entryCancelBtn">Отмена</button>
+        <button type="submit" class="btn-primary" id="entrySubmitBtn">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Edit glossary name/share -->
+<div id="glossaryModal" class="modal-backdrop" style="display:none">
+  <div class="modal">
+    <h3>Редактировать глоссарий</h3>
+    <form id="glossaryForm">
+      <input type="hidden" id="editGlossaryId" value="">
+      <label>
+        <span>Название *</span>
+        <input type="text" id="editGlossaryName" required maxlength="120">
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" id="editGlossaryShared">
+        <span>Общий для всех</span>
+      </label>
+      <p class="model-info" id="glossaryFormStatus"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="glossaryCancelBtn">Отмена</button>
+        <button type="submit" class="btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/static/glossaries.js"></script>
+</body>
+</html>

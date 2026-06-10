@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>История транскрибаций — Meeting Protocol</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<link rel="stylesheet" href="/static/styles.css">
+<style>
+  body { background: #f8fafc; }
+  .jobs-toolbar {
+    display: flex; gap: .5rem; align-items: center;
+    margin-bottom: 1rem; flex-wrap: wrap;
+  }
+  .jobs-toolbar input, .jobs-toolbar select {
+    padding: .4rem .6rem; border: 1px solid #cbd5e1; border-radius: 4px;
+    font-size: 14px;
+  }
+  .jobs-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    background: #fff; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .jobs-table th, .jobs-table td {
+    padding: .55rem .7rem; text-align: left;
+    border-bottom: 1px solid #e2e8f0; vertical-align: top;
+  }
+  .jobs-table th {
+    background: #f1f5f9; font-weight: 600; color: #334155;
+    position: sticky; top: 0; z-index: 5;
+    white-space: nowrap;
+  }
+  .jobs-table tr:hover { background: #f8fafc; }
+  .jobs-table .col-actions { white-space: nowrap; }
+  .jobs-table .col-filename { max-width: 220px; word-break: break-all; }
+  .jobs-table .col-description { max-width: 280px; }
+  .jobs-table .col-template { max-width: 160px; }
+  .jobs-table .col-prompt { max-width: 200px; font-style: italic; color: #475569; }
+  .status-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+  }
+  .status-completed { background: #dcfce7; color: #166534; }
+  .status-queued { background: #dbeafe; color: #1e40af; }
+  .status-running { background: #fef9c3; color: #854d0e; }
+  .status-failed { background: #fee2e2; color: #991b1b; }
+  .status-canceled { background: #f1f5f9; color: #475569; }
+  .status-draft { background: #ede9fe; color: #5b21b6; }
+  .queue-pill {
+    display: inline-block; padding: 1px 6px; border-radius: 8px;
+    font-size: 10px; background: #dbeafe; color: #1e40af; margin-left: 4px;
+  }
+  .badge-glossary {
+    display: inline-block; padding: 1px 5px; border-radius: 6px;
+    background: #ede9fe; color: #5b21b6; font-size: 10px; margin: 1px;
+  }
+  .badge-cand {
+    background: #fef3c7; color: #92400e;
+    padding: 1px 5px; border-radius: 6px; font-size: 10px;
+  }
+  .note-input {
+    width: 100%; border: 1px solid transparent; background: transparent;
+    padding: 4px 6px; font: inherit; resize: vertical; min-height: 24px;
+    border-radius: 4px;
+  }
+  .note-input:focus { background: #fff; border-color: #93c5fd; outline: none; }
+  .note-input.saving { background: #fef9c3; }
+  .note-input.saved { background: #dcfce7; }
+  .action-btn {
+    border: 1px solid #cbd5e1; background: #fff; border-radius: 4px;
+    padding: 3px 8px; font-size: 12px; cursor: pointer; margin: 1px;
+  }
+  .action-btn:hover { background: #f1f5f9; }
+  .action-btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .action-btn.primary:hover { background: #1d4ed8; }
+  .action-btn.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+  .action-btn.danger:hover { background: #b91c1c; }
+  .action-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .empty-state {
+    text-align: center; padding: 3rem 1rem; color: #64748b;
+  }
+  .loading { text-align: center; padding: 2rem; color: #64748b; }
+  .pagination {
+    display: flex; gap: .5rem; justify-content: center; align-items: center;
+    margin-top: 1rem; font-size: 13px;
+  }
+  .pagination button {
+    padding: .3rem .7rem; border: 1px solid #cbd5e1; background: #fff;
+    border-radius: 4px; cursor: pointer;
+  }
+  .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+  .regen-count {
+    display: inline-block; padding: 0 5px; background: #fef3c7;
+    color: #92400e; border-radius: 6px; font-size: 10px; margin-left: 4px;
+  }
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.4);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-box {
+    background: #fff; border-radius: 8px; padding: 1.5rem;
+    max-width: 700px; width: 90vw; max-height: 85vh; overflow: auto;
+  }
+  .modal-box h3 { margin: 0 0 1rem; }
+  .cand-row {
+    border: 1px solid #e2e8f0; border-radius: 6px; padding: .6rem;
+    margin-bottom: .5rem;
+  }
+  .cand-row .term { font-weight: 600; color: #1e293b; }
+  .cand-row .ctx { color: #64748b; font-size: 12px; font-style: italic; margin: .3rem 0; }
+  .cand-row .defn { font-size: 13px; color: #334155; }
+  .cand-row .actions { margin-top: .4rem; display: flex; gap: .3rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📚 История транскрибаций</h1>
+    <p class="subtitle">Все задания: аудио → протоколы DOCX</p>
+    <div class="user-bar">
+      <a href="/static/index.html" class="btn-link-logout">⬆ Загрузить новую</a>
+      <a href="/static/glossaries.html" class="btn-link-logout">📖 Глоссарии</a>
+      <a href="/static/templates.html" class="btn-link-logout">📋 Шаблоны</a>
+      <a href="/static/admin.html" class="btn-link-logout" id="adminLink" style="display:none;">⚙️ Админка</a>
+      <span id="userInfo" class="user-info"></span>
+      <button class="btn-link-logout" id="logoutBtn">Выйти</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="jobs-toolbar">
+      <input type="text" id="searchInput" placeholder="🔍 Поиск по файлу/описанию..." style="flex:1; min-width:200px;">
+      <select id="statusFilter">
+        <option value="">Все статусы</option>
+        <option value="completed">✅ Готово</option>
+        <option value="queued">⏳ В очереди</option>
+        <option value="running">🔄 Выполняется</option>
+        <option value="failed">❌ Ошибка</option>
+        <option value="canceled">🚫 Отменено</option>
+      </select>
+      <button class="action-btn" id="refreshBtn">🔄 Обновить</button>
+      <span id="totalInfo" style="font-size:12px; color:#64748b;"></span>
+    </div>
+
+    <div id="jobsTableContainer">
+      <div class="loading">Загрузка...</div>
+    </div>
+
+    <div class="pagination" id="pagination" style="display:none;">
+      <button id="prevPage">← Назад</button>
+      <span id="pageInfo">—</span>
+      <button id="nextPage">Вперёд →</button>
+    </div>
+  </main>
+</div>
+
+<!-- Модалка: выбор шаблона для job -->
+<div class="modal-overlay" id="templateModal" hidden>
+  <div class="modal-box">
+    <h3>📋 Выбор шаблона</h3>
+    <p style="color:#64748b; font-size:13px;">
+      Текущий: <b id="currentTplName">—</b><br>
+      <small>Дефолтный шаблон используется, если ничего не выбрано.</small>
+    </p>
+    <select id="tplSelect" style="width:100%; padding:.5rem; margin-bottom:1rem;"></select>
+    <div style="display:flex; gap:.5rem; justify-content:flex-end;">
+      <button class="action-btn" id="tplCancel">Отмена</button>
+      <button class="action-btn" id="tplReset">Сбросить на дефолт</button>
+      <button class="action-btn primary" id="tplSave">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: привязка глоссариев к job -->
+<div class="modal-overlay" id="glossariesModal" hidden>
+  <div class="modal-box">
+    <h3>📖 Глоссарии для протокола</h3>
+    <p style="color:#64748b; font-size:13px;">
+      Отметьте глоссарии, которые нужно использовать при генерации документа.
+    </p>
+    <div id="glossariesList"></div>
+    <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:1rem;">
+      <button class="action-btn" id="glCancel">Закрыть</button>
+      <button class="action-btn primary" id="glSave">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: candidates -->
+<div class="modal-overlay" id="candidatesModal" hidden>
+  <div class="modal-box">
+    <h3>🔍 Спорные термины (LLM-извлечение)</h3>
+    <p style="color:#64748b; font-size:13px;">
+      Термины, которые LLM не смог уверенно интерпретировать. Добавьте их в глоссарий и нажмите
+      <b>🔄 Пересоздать документ</b>.
+    </p>
+    <div id="candidatesList">
+      <div class="loading">Загрузка...</div>
+    </div>
+    <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:1rem;">
+      <button class="action-btn" id="candClose">Закрыть</button>
+      <button class="action-btn" id="candExtract">🔄 Извлечь заново</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/jobs.js"></script>
+</body>
+</html>
