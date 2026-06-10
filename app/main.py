@@ -1,11 +1,12 @@
 """FastAPI entrypoint."""
+
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router as api_router
@@ -13,7 +14,15 @@ from .config import settings
 from .mcp_server import mcp_router
 from .prompts_api import router as prompts_router
 from .templates_api import router as templates_router
-from .web_auth import COOKIE_NAME, is_session_valid, is_web_auth_enabled, router as web_auth_router
+from .web_auth import (
+    COOKIE_NAME,
+    is_session_valid,
+    is_web_auth_enabled,
+    router as web_auth_router,
+)
+from .admin_api import router as admin_router
+from .api_glossaries import router as api_glossaries_router
+from .api_jobs import router as api_jobs_router
 from . import storage
 from . import storage_templates
 
@@ -28,6 +37,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     storage.init_db()
     storage_templates.init_templates_table()
+    # Extended schema (glossaries, queue, candidates, jobs.description) — идемпотентно
+    from . import storage_jobs
+    storage_jobs.init_extended()
+    # Bootstrap admin + миграция .env → БД (idempotent)
+    from .storage_users import bootstrap_admin, migrate_from_env
+
+    bootstrap_admin()
+    migrate_from_env()
     logger.info(f"Service started. Storage: {settings.storage_dir}")
     yield
 
@@ -55,12 +72,7 @@ async def web_auth_middleware(request, call_next):
     path = request.url.path
     # Защищаем: корень, статику, и /web/check (нужна авторизация)
     # Открытые: /web/login, /web/logout, /api/v1/*, /mcp/*
-    needs_auth = (
-        path == "/"
-        or path.startswith("/static")
-        or path == "/favicon.ico"
-        or path == "/web/check"
-    )
+    needs_auth = path == "/" or path.startswith("/static") or path == "/web/check"
     if is_web_auth_enabled() and needs_auth:
         token = request.cookies.get(COOKIE_NAME)
         if not is_session_valid(token):
@@ -87,6 +99,9 @@ app.include_router(mcp_router)
 app.include_router(prompts_router)
 app.include_router(templates_router)
 app.include_router(web_auth_router)
+app.include_router(admin_router)
+app.include_router(api_glossaries_router)
+app.include_router(api_jobs_router)
 
 # Статические файлы (web UI)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -113,4 +128,10 @@ async def download_template():
 
 @app.get("/favicon.ico")
 async def favicon():
-    return FileResponse(STATIC_DIR / "favicon.ico", media_type="image/x-icon")
+    favicon_path = STATIC_DIR / "favicon.ico"
+    if not favicon_path.exists():
+        # Без файла — отдать 204 (браузер перестанет повторно запрашивать)
+        from fastapi.responses import Response
+
+        return Response(status_code=204)
+    return FileResponse(favicon_path, media_type="image/x-icon")
