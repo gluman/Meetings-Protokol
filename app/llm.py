@@ -16,6 +16,56 @@ from .prompts import get_audio_prompt, get_video_prompt
 logger = logging.getLogger(__name__)
 
 
+def _format_glossary_block(entries: list[dict] | None) -> str:
+    """
+    Форматирует записи глоссария в блок для system prompt.
+
+    Включает все поля: term, definition, abbreviation, pronunciation, comment.
+    Игнорирует entries с needs_review=1 (спорные — их LLM не должна
+    использовать как эталон; их место в candidates, не в prompt).
+
+    Args:
+        entries: list of dict с полями term, definition, abbreviation,
+                 pronunciation, comment, needs_review.
+                 None или [] → возвращает "" (без блока).
+
+    Returns:
+        Готовая строка для склейки с system prompt. Пустая если entries
+        пуст или None.
+    """
+    if not entries:
+        return ""
+    lines: list[str] = ["", "## Глоссарий встречи", ""]
+    lines.append(
+        "Используй эти термины, аббревиатуры и произношения при заполнении "
+        "протокола. Если в транскрипте встречается слово/аббревиатура из "
+        "глоссария — подставляй каноническое написание и расшифровку."
+    )
+    lines.append("")
+    has_any = False
+    for e in entries:
+        if e.get("needs_review"):
+            continue
+        term = (e.get("term") or "").strip()
+        if not term:
+            continue
+        has_any = True
+        parts = [f"- **{term}**"]
+        if e.get("abbreviation"):
+            parts.append(f"(сокр.: {e['abbreviation']})")
+        if e.get("pronunciation"):
+            parts.append(f"[произн.: {e['pronunciation']}]")
+        lines.append(" ".join(parts))
+        if e.get("definition"):
+            lines.append(f"  определение: {e['definition']}")
+        if e.get("comment"):
+            lines.append(f"  примечание: {e['comment']}")
+    if not has_any:
+        return ""
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _provider_status() -> tuple[str, str]:
     """Возвращает (provider_name, base_url) — какой провайдер сейчас активен.
 
@@ -140,6 +190,7 @@ async def generate_protocol(
     *,
     is_video: bool = False,
     video_base64: str | None = None,
+    glossary_entries: list[dict] | None = None,
 ) -> tuple[Protocol, str]:
     """Генерация протокола через MiniMax-M3 (через AutoAI Router или прямой MiniMax).
 
@@ -148,6 +199,10 @@ async def generate_protocol(
         prompt: заметки пользователя
         is_video: если True, передаём видео в vision
         video_base64: base64 видеофайла (только для is_video=True)
+        glossary_entries: опциональный список entries глоссария для инъекции
+            в system prompt. Формат: [{term, definition, abbreviation,
+            pronunciation, comment, needs_review}, ...]. needs_review=1
+            записи игнорируются. None/[] = без инъекции.
 
     Returns:
         (Protocol, model_used_name)
@@ -156,7 +211,16 @@ async def generate_protocol(
     api_key = settings.autoai_api_key if provider == "autoai" else settings.minimax_api_key
 
     # Берём промпт из файла (можно редактировать через /api/v1/prompts)
-    sys_prompt = get_video_prompt() if is_video else get_audio_prompt()
+    base_prompt = get_video_prompt() if is_video else get_audio_prompt()
+    # Подмешиваем глоссарий — форматтер сам решит, добавлять блок или нет
+    glossary_block = _format_glossary_block(glossary_entries)
+    sys_prompt = base_prompt + glossary_block
+    if glossary_block:
+        logger.info(
+            f"LLM: injecting glossary block, "
+            f"entries={len([e for e in (glossary_entries or []) if not e.get('needs_review') and e.get('term')])}, "
+            f"prompt_size={len(sys_prompt)}"
+        )
 
     headers = {
         "Authorization": f"Bearer {api_key}",

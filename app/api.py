@@ -228,9 +228,21 @@ async def _process_job(
     file_path: Path,
     prompt: str,
     kind: str,
-    output_stem: str,
+    output_stem: str | None = None,
+    glossary_entries: list[dict] | None = None,
 ) -> None:
-    """Фоновый пайплайн: ASR → LLM (M3) → DOCX → SQLite."""
+    """Фоновый пайплайн: ASR → LLM (M3) → DOCX → SQLite.
+
+    Args:
+        job_id: ID задачи.
+        file_path: путь к загруженному аудио/видео.
+        prompt: заметки пользователя.
+        kind: "audio" | "video".
+        output_stem: имя DOCX без расширения (если None — используется
+            file_path.stem).
+        glossary_entries: entries глоссария для инъекции в LLM prompt
+            (см. llm.generate_protocol).
+    """
     try:
         storage.update_status(job_id, "transcribing")
         is_video = kind == "video"
@@ -244,16 +256,28 @@ async def _process_job(
             transcript = await transcribe_audio(str(file_path), language="ru")
         storage.update_status(job_id, "analyzing")
 
+        # Если glossary_entries не передали явно — подтягиваем из БД (job_glossaries M:N)
+        if glossary_entries is None:
+            try:
+                from .storage_jobs import list_job_entries_with_glossary
+                glossary_entries = list_job_entries_with_glossary(job_id)
+            except Exception as ge_exc:
+                logger.warning(f"glossary load failed for {job_id}: {ge_exc}")
+                glossary_entries = []
+
         protocol, used_model = await generate_protocol(
             transcript=transcript,
             prompt=prompt,
             is_video=is_video,
             video_base64=video_b64,
+            glossary_entries=glossary_entries,
         )
         storage.save_protocol(job_id, protocol)
         storage.update_status(job_id, "rendering")
 
-        await render_protocol_docx(protocol, job_id, output_name=output_stem)
+        # Если output_stem не передан — берём из имени файла
+        effective_stem = output_stem or file_path.stem
+        await render_protocol_docx(protocol, job_id, output_name=effective_stem)
         # обновим model_used на фактически использованную
         with storage._conn() as c:
             c.execute(
@@ -261,7 +285,7 @@ async def _process_job(
                 (used_model, job_id),
             )
         storage.update_status(job_id, "completed")
-        logger.info(f"Job {job_id} done. model={used_model} docx={output_stem}.docx")
+        logger.info(f"Job {job_id} done. model={used_model} docx={effective_stem}.docx")
     except Exception as e:
         logger.exception(f"Job {job_id} failed")
         storage.update_status(job_id, "failed", error=str(e)[:1000])

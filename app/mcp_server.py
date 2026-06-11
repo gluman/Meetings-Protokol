@@ -142,6 +142,7 @@ async def _tool_transcribe_meeting(arguments: dict) -> dict:
         file_name=file_name,
         file_path=str(file_path),
     )
+    # Glossary injection: _process_job сам подтянет entries через job_glossaries
     asyncio.create_task(_process_job(job_id, file_path, prompt, kind))
 
     return {

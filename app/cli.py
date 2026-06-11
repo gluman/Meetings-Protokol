@@ -28,6 +28,7 @@ async def transcribe_cmd(file_path: str, prompt: str):
     )
     print(f"Job: {job_id}")
     print("Processing (M3)...")
+    # Glossary injection: _process_job сам подтянет entries через job_glossaries
     await _process_job(job_id, p, prompt, kind)
     job = storage.get_job(job_id)
     if job and job.status == "completed":
